@@ -2,6 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from django.core.management.base import BaseCommand
+from django.db import models
 from universities.models import University
 import google.generativeai as genai
 import time
@@ -36,8 +37,8 @@ class Command(BaseCommand):
             universities = universities.filter(id=options['id'])
         
         if not options['force']:
-            # Skip ones that already have an overview
-            universities = universities.filter(overview="")
+            # Skip ones that already have a valid overview
+            universities = universities.filter(models.Q(overview="") | models.Q(overview__startswith="AI Summary unavailable"))
 
         if options['limit']:
             universities = universities[:options['limit']]
@@ -106,7 +107,7 @@ class Command(BaseCommand):
             print(f"Scraping error for {url}: {e}")
             return None
 
-    def generate_summary(self, model, uni_name, context):
+    def generate_summary(self, model, uni_name, context, retries=3):
         prompt = f"""
 You are an expert educational consultant helping students choose a university in Tanzania.
 I will provide you with text scraped from the website of "{uni_name}".
@@ -125,9 +126,16 @@ Constraint: Do NOT invent information. If specific details (like weather or camp
 Website Content:
 {context}
         """
-        try:
-            response = model.generate_content(prompt)
-            return response.text.strip()
-        except Exception as e:
-            print(f"Gemini generation error: {e}")
-            return None
+        for attempt in range(retries):
+            try:
+                response = model.generate_content(prompt)
+                return response.text.strip()
+            except Exception as e:
+                if "429" in str(e):
+                    wait_time = (2 ** attempt) * 20 # 20s, 40s, 80s
+                    print(f"Rate limit hit. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"Gemini generation error: {e}")
+                    return None
+        return None

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import University, Programme
+from .models import University, Programme, Course
 
 class UniversitySerializer(serializers.ModelSerializer):
     class Meta:
@@ -27,3 +27,14 @@ class ProgrammeSerializer(serializers.ModelSerializer):
             'study_mode',
             'description'
         ]
+
+class CourseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course # Assuming Course is imported from models, but it wasn't. Need to update imports too.
+        fields = ['id', 'name', 'code', 'semester', 'year', 'credits', 'description']
+
+class ProgrammeDetailSerializer(ProgrammeSerializer):
+    courses = CourseSerializer(many=True, read_only=True)
+    
+    class Meta(ProgrammeSerializer.Meta):
+        fields = ProgrammeSerializer.Meta.fields + ['courses']

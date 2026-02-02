@@ -13,7 +13,12 @@ class UniversityViewSet(viewsets.ReadOnlyModelViewSet):
 
 class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Programme.objects.all().select_related('university').order_by('name')
-    serializer_class = ProgrammeSerializer
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['name', 'university__name', 'description']
     filterset_fields = ['award_level', 'study_mode', 'university']
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            from .serializers import ProgrammeDetailSerializer
+            return ProgrammeDetailSerializer
+        return ProgrammeSerializer
