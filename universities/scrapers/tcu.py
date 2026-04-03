@@ -6,12 +6,149 @@ import time
 logger = logging.getLogger(__name__)
 
 class TCUScraper:
-    BASE_URL = "https://tcu.go.tz/services/accreditation/academic-programmes-offered-universities-tanzania"
+    PROGRAMMES_URL = "https://tcu.go.tz/services/accreditation/academic-programmes-offered-universities-tanzania"
+    METADATA_URL = "https://tcu.go.tz/services/accreditation/universities-registered-tanzania"
 
     def __init__(self):
         self.session = requests.Session()
         retries = requests.adapters.Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
         self.session.mount('https://', requests.adapters.HTTPAdapter(max_retries=retries))
+
+    def fetch_universities_metadata(self):
+        """
+        Fetches university metadata and their details page urls.
+        Returns a generator of dictionaries with full university metadata.
+        """
+        page = 0
+        has_next = True
+        
+        while has_next:
+            url = f"{self.METADATA_URL}?page={page}"
+            logger.info(f"Scraping University Metadata List Page {page}: {url}")
+            
+            try:
+                response = self.session.get(url, verify=False, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'lxml')
+                
+                table = soup.find('table')
+                if not table:
+                    logger.warning(f"No table on page {page}. Stopping.")
+                    break
+                
+                rows = [r for r in table.find_all('tr') if r.find('td')]
+                if not rows:
+                    logger.info("No data rows found. Stopping.")
+                    break
+
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) < 6:
+                        continue
+                        
+                    name = cols[1].get_text(strip=True)
+                    head_office = cols[2].get_text(strip=True)
+                    uni_type = cols[3].get_text(strip=True)
+                    status = cols[4].get_text(strip=True)
+                    
+                    view_link = cols[5].find('a')
+                    detail_url = None
+                    if view_link and 'href' in view_link.attrs:
+                        href = view_link['href']
+                        if href.startswith('http'):
+                            detail_url = href
+                        elif href.startswith('/'):
+                            detail_url = f"https://tcu.go.tz{href}"
+                        else:
+                            detail_url = f"https://tcu.go.tz/services/accreditation/{href}"
+
+                    # Base metadata structure
+                    uni_data = {
+                        'name': name,
+                        'head_office': head_office,
+                        'university_type': uni_type,
+                        'status': status,
+                        'address': '',
+                        'email': '',
+                        'website': '',
+                        'accreditation_status': '',
+                        'registration_no': ''
+                    }
+
+                    if detail_url:
+                        details = self._fetch_university_details(detail_url)
+                        uni_data.update(details)
+
+                    yield uni_data
+
+                next_page = soup.find('a', title='Go to next page') or soup.find('li', class_='pager__item--next')
+                if not next_page:
+                    has_next = False
+                else:
+                    page += 1
+                    time.sleep(1)
+                    
+            except Exception as e:
+                logger.error(f"Error on metadata page {page}: {e}")
+                break
+
+    def _fetch_university_details(self, url):
+        """
+        Helper method to scrape specific details.
+        Returns a dict of additional metadata.
+        """
+        details = {
+            'address': '',
+            'email': '',
+            'website': '',
+            'accreditation_status': '',
+            'registration_no': ''
+        }
+        try:
+            response = self.session.get(url, verify=False, timeout=30)
+            soup = BeautifulSoup(response.content, 'lxml')
+            
+            # Address
+            addr_label = soup.find(string=lambda t: t and "Address:" in t)
+            if addr_label:
+                container = addr_label.find_parent('div', class_='field')
+                if container:
+                    val_item = container.find(class_='field__item') or container.find(class_='field-item')
+                    if val_item:
+                       details['address'] = val_item.get_text(separator="\\n", strip=True)
+                if not details['address']:
+                    details['address'] = addr_label.parent.parent.get_text(strip=True).replace("Address:", "").strip()
+
+            # Email
+            email_label = soup.find(string=lambda t: t and "E-mail:" in t)
+            if email_label:
+                link = email_label.find_next('a', href=lambda h: h and 'mailto:' in h)
+                if link:
+                    details['email'] = link.get_text(strip=True)
+                else:
+                    details['email'] = email_label.parent.parent.get_text(strip=True).replace("E-mail:", "").strip()
+
+            # Website
+            web_label = soup.find(string=lambda t: t and "Website:" in t)
+            if web_label:
+                link = web_label.find_next('a', href=True)
+                if link:
+                    details['website'] = link['href']
+                
+            # Accreditation Status
+            acc_label = soup.find(string=lambda t: t and "Accreditation Status:" in t)
+            if acc_label:
+                 details['accreditation_status'] = acc_label.parent.parent.get_text(strip=True).replace("Accreditation Status:", "").strip()
+            
+            # Registration No
+            reg_label = soup.find(string=lambda t: t and "Registration No.:" in t)
+            if reg_label:
+                details['registration_no'] = reg_label.parent.parent.get_text(strip=True).replace("Registration No.:", "").strip()
+
+        except Exception as e:
+            logger.error(f"Error fetching detail page at {url}: {e}")
+            
+        return details
 
     def fetch_programmes(self):
         """
@@ -23,11 +160,10 @@ class TCUScraper:
         consecutive_errors = 0
         
         while has_next:
-            url = f"{self.BASE_URL}?page={page}"
-            logger.info(f"Fetching page {page}: {url}")
+            url = f"{self.PROGRAMMES_URL}?page={page}"
+            logger.info(f"Fetching programmes page {page}: {url}")
             
             try:
-                # Add headers to mimic browser
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
                 }
@@ -40,9 +176,7 @@ class TCUScraper:
                     logger.warning(f"No table found on page {page}. Stopping.")
                     break
                 
-                rows = table.find_all('tr')
-                # Skip header row (checking if it contains 'S/N' or just standard td check)
-                data_rows = [r for r in rows if r.find('td')]
+                data_rows = [r for r in table.find_all('tr') if r.find('td')]
                 
                 if not data_rows:
                     logger.info("No more data rows found. Stopping.")
@@ -86,7 +220,6 @@ class TCUScraper:
                 logger.info(f"Extracted {page_count} programmes from page {page}")
                 yield batch
                 
-                # Check for "Next" link
                 next_page_exists = soup.find('a', title='Go to next page') or soup.find('li', class_='pager__item--next')
                 
                 if page > 200: 
@@ -94,7 +227,7 @@ class TCUScraper:
                     break
                     
                 page += 1
-                consecutive_errors = 0 # Reset error count
+                consecutive_errors = 0
                 time.sleep(0.5)
                 
             except Exception as e:
@@ -103,20 +236,4 @@ class TCUScraper:
                 if consecutive_errors > 3:
                      logger.error("Too many consecutive errors. Stopping.")
                      break
-                time.sleep(5) # Wait a bit before retrying the same page (or next page logic needs adjustment if we want to retry SAME page)
-                # Currently this loop increments page even on error if we don't handle it.
-                # Actually, if we get an exception, we hit 'break' in the old code.
-                # Here we should probably continue to retry the *current* page or just skip? 
-                # Simplest is to just skip for now or try to retry the loop.
-                # Let's just log and continue to allow next pages if it's a specific page error, 
-                # BUT if it's connection error the iterator moves to next page which is wrong.
-                # Correct logic for retry of SAME page is complex without refactoring loop.
-                # For now, let's rely on `requests.adapters.Retry` to handle connection glitches.
-                # If `requests` raises after retries, we likely can't access the site.
-                if "Read timed out" in str(e):
-                     # If requests retry didn't fix it, we might be blocked.
-                     pass 
-
-    def fetch_universities(self):
-        # We now extract universities dynamically from the programmes list
-        return []
+                time.sleep(5)
