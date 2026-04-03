@@ -1,12 +1,16 @@
 import os
 import time
 import json
-import re
+import random
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from django.core.management.base import BaseCommand
-from universities.models import University, Programme, Course, AdmissionRequirement, CareerOutlook
-import google.generativeai as genai
+from universities.models import University, Programme, Course, AdmissionRequirement
+
+from google import genai
+from google.genai import types
+
 from dotenv import load_dotenv
 import urllib3
 
@@ -14,18 +18,19 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 load_dotenv()
 
 PDF_MAPPING = {
-    'udsm.pdf': 'University of Dar es Salaam',
-    'mzumbe.pdf': 'Mzumbe University',
+    'prospectuses/udsm.pdf': 'University of Dar es Salaam',
+    'prospectuses/mzumbe.pdf': 'Mzumbe University',
 }
 
 class Command(BaseCommand):
-    help = 'Ingests university prospectus PDFs, extracts course details, and generates enriched overviews using Gemini 1.5 Flash.'
+    help = 'Ingests university prospectus PDFs, extracts course details concurrently using the modern google.genai SDK.'
 
     def add_arguments(self, parser):
         parser.add_argument('--limit', type=int, default=0, help='Limit number of programmes to process per university (0 for all)')
         parser.add_argument('--programme', type=str, help='Process a specific programme by name (partial match)')
         parser.add_argument('--file', type=str, help='Specific PDF file to process (must be in backend/)')
         parser.add_argument('--university', type=str, help='Specific University name (if using --file)')
+        parser.add_argument('--workers', type=int, default=3, help='Number of concurrent threads (default: 3)')
 
     def handle(self, *args, **options):
         api_key = os.getenv("GEMINI_API_KEY")
@@ -33,7 +38,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("GEMINI_API_KEY not found."))
             return
 
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
         
         targets = []
         if options['file'] and options['university']:
@@ -53,13 +58,12 @@ class Command(BaseCommand):
             return
 
         for filename, uni_name in targets:
-            self.process_university(filename, uni_name, options)
+            self.process_university(filename, uni_name, options, client)
 
     def scrape_website(self, url):
-        """Scrapes text content from the homepage."""
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'
             }
             response = requests.get(url, headers=headers, timeout=15, verify=False)
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -77,7 +81,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Scraping error for {url}: {e}"))
             return ""
 
-    def process_university(self, pdf_path, uni_name_query, options):
+    def process_university(self, pdf_path, uni_name_query, options, client):
         self.stdout.write(self.style.MIGRATE_HEADING(f"\nProcessing {uni_name_query} from {pdf_path}..."))
         
         try:
@@ -96,16 +100,16 @@ class Command(BaseCommand):
             self.stdout.write(f"Scraping website: {uni.website}")
             website_text = self.scrape_website(uni.website)
         
-        self.stdout.write("Uploading PDF to Gemini...")
+        self.stdout.write("Uploading PDF to Gemini using new SDK...")
         try:
-            sample_file = genai.upload_file(path=pdf_path, display_name=f"{uni.name} Prospectus")
+            sample_file = client.files.upload(file=pdf_path)
             
-            while sample_file.state.name == "PROCESSING":
+            while "PROCESSING" in str(sample_file.state):
                 print(".", end="", flush=True)
                 time.sleep(2)
-                sample_file = genai.get_file(sample_file.name)
+                sample_file = client.files.get(name=sample_file.name)
             
-            if sample_file.state.name == "FAILED":
+            if "FAILED" in str(sample_file.state):
                 self.stdout.write(self.style.ERROR("File processing failed."))
                 return
                 
@@ -114,25 +118,48 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Upload failed: {e}"))
             return
 
-        model = genai.GenerativeModel(model_name="gemini-3.0-pro") # Using Gemini 3.0 Pro for maximum accuracy
-
         # Generate University Overview & Global Description
-        self.generate_university_overview(model, sample_file, uni, website_text)
+        self.generate_university_overview(client, sample_file, uni, website_text)
 
-        programmes = Programme.objects.filter(university=uni)
+        programmes = Programme.objects.filter(university=uni, name__icontains='Bachelor')
         if options['programme']:
             programmes = programmes.filter(name__icontains=options['programme'])
         
         if options['limit'] > 0:
             programmes = programmes[:options['limit']]
 
-        self.stdout.write(f"Processing {programmes.count()} programmes...")
+        max_workers = options.get('workers', 3)
+        self.stdout.write(self.style.MIGRATE_HEADING(f"Processing {programmes.count()} programmes concurrently using {max_workers} threads..."))
 
-        for prog in programmes:
-            self.process_programme(model, sample_file, prog)
-            time.sleep(4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(self.process_programme_with_retry, client, sample_file, prog): prog for prog in programmes}
+            for future in as_completed(futures):
+                prog = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    self.stdout.write(self.style.ERROR(f"Unhandled thread exception for {prog.name}: {exc}"))
 
-    def generate_university_overview(self, model, pdf_file, uni, website_text):
+    def process_programme_with_retry(self, client, pdf_file, programme, max_retries=5):
+        base_delay = 10
+        for attempt in range(max_retries):
+            try:
+                self.process_programme(client, pdf_file, programme)
+                return True
+            except Exception as e:
+                error_msg = str(e).lower()
+                if '429' in error_msg or 'quota' in error_msg or 'exhausted' in error_msg or 'internal' in error_msg or '503' in error_msg:
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 2)
+                    self.stdout.write(self.style.WARNING(f"  [Rate Limit for {programme.name}] Retrying in {delay:.1f}s (Attempt {attempt+1}/{max_retries})..."))
+                    time.sleep(delay)
+                else:
+                    self.stdout.write(self.style.ERROR(f"  [Fatal Error {programme.name}]: {e}"))
+                    return False
+                    
+        self.stdout.write(self.style.ERROR(f"  [Failed] Max retries reached for {programme.name}."))
+        return False
+
+    def generate_university_overview(self, client, pdf_file, uni, website_text):
         self.stdout.write("Generating University Overview and Context...")
         
         prompt = f"""
@@ -148,18 +175,19 @@ class Command(BaseCommand):
         
         Output JSON Format:
         {{
-            "overview": "A high-value ~150 word summary of the university (Location, Type, Key Offerings, Campus Life).",
+            "overview": "A high-value ~150 word summary of the university.",
             "description": "A more detailed history/background of the institution.",
             "location": "List of cities or regions where campuses are located, if found."
         }}
         
-        Constraints:
-        - Only return valid JSON. Do not use markdown blocks.
-        - If a specific field is entirely unknown, use an empty string "".
+        Constraints: Only return valid JSON. Do not use markdown blocks. Use an empty string "" if completely unknown.
         """
 
         try:
-            response = model.generate_content([prompt, pdf_file])
+            response = client.models.generate_content(
+                model='gemini-2.5-pro',
+                contents=[prompt, pdf_file]
+            )
             text = response.text.strip()
             
             if text.startswith("```json"): text = text[7:]
@@ -177,7 +205,7 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"  Failed to generate university overview: {e}"))
 
-    def process_programme(self, model, pdf_file, programme):
+    def process_programme(self, client, pdf_file, programme):
         self.stdout.write(f"Extracting for: {programme.name}...")
         
         prompt = f"""
@@ -186,7 +214,7 @@ class Command(BaseCommand):
         
         Output JSON Format:
         {{
-            "description": "A brief summary of what the course is about...",
+            "description": "A comprehensive summary of what the programme entails. If the prospectus does not explicitly provide a summary paragraph, synthesize a highly relevant 2-sentence description based on the programme name, career outlooks, and courses.",
             "admission_requirements": {{
                 "description": "Text describing general O-level/A-level requirements",
                 "min_points": 4.0,
@@ -214,105 +242,95 @@ class Command(BaseCommand):
         
         Critical Constraints & Safety rules:
         - Only return valid JSON without markdown wrapping.
-        - If details like admission requirements, required subjects, or career outlooks are NOT explicitly mentioned, set their values to null. Do NOT hallucinate data.
+        - For Admission Requirements: If explicitly NOT mentioned in text, set values to null. Do NOT hallucinate.
+        - For Course `description`, `objectives`, and `career_outlooks`: If the prospectus lacks explicit text, you ARE authorized to intelligently synthesize highly relevant content based entirely on the programme or course title. However, if you do synthesize them, you MUST prefix the associated strings with "[AI Auto-Generated] ".
         - `min_points` should be a float if found, otherwise null.
         - If the exact programme name isn't found, look for variations. If not found at all, return {{ "error": "Programme not found" }}.
         """
 
+        response = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=[prompt, pdf_file]
+        )
+        text = response.text.strip()
+        
+        if text.startswith("```json"): text = text[7:]
+        if text.startswith("```"): text = text[3:]
+        if text.endswith("```"): text = text[:-3]
+        
         try:
-            response = model.generate_content([prompt, pdf_file])
-            text = response.text.strip()
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            self.stdout.write(self.style.ERROR("  Failed to parse JSON response. Skipping."))
+            return
+        
+        if "error" in data:
+            self.stdout.write(self.style.WARNING(f"  Result: {data['error']}"))
+            return
+
+        if data.get("description"):
+            programme.description = data["description"]
+            programme.save()
+
+        adm = data.get("admission_requirements", {})
+        if adm:
+            desc = adm.get("description")
+            if desc: 
+                min_pts = adm.get("min_points")
+                try:
+                     if min_pts is not None: min_pts = float(min_pts)
+                     else: min_pts = 0.0
+                except (ValueError, TypeError):
+                     min_pts = 0.0
+
+                AdmissionRequirement.objects.update_or_create(
+                    programme=programme,
+                    defaults={
+                        'description': desc,
+                        'min_points': min_pts,
+                        'required_subjects': adm.get("required_subjects") or ""
+                    }
+                )
+
+        careers = data.get("career_outlooks")
+        if careers and isinstance(careers, list):
+            programme.career_outlooks = careers
+            programme.save()
+
+        count = 0
+        for year_data in data.get("structure", []):
+            year = year_data.get("year", 1)
+            semester = year_data.get("semester", 1)
             
-            if text.startswith("```json"): text = text[7:]
-            if text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-            
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                self.stdout.write(self.style.ERROR("  Failed to parse JSON response. Skipping."))
-                return
-            
-            if "error" in data:
-                self.stdout.write(self.style.WARNING(f"  Result: {data['error']}"))
-                return
-
-            if data.get("description"):
-                programme.description = data["description"]
-                programme.save()
-
-            # Admission Requirements
-            adm = data.get("admission_requirements", {})
-            if adm:
-                desc = adm.get("description")
-                if desc: # Only create if there's actual data
-                    min_pts = adm.get("min_points")
-                    # handle possible strings in min_points safely
-                    try:
-                         if min_pts is not None: min_pts = float(min_pts)
-                         else: min_pts = 0.0
-                    except (ValueError, TypeError):
-                         min_pts = 0.0
-
-                    AdmissionRequirement.objects.update_or_create(
-                        programme=programme,
-                        defaults={
-                            'description': desc,
-                            'min_points': min_pts,
-                            'required_subjects': adm.get("required_subjects") or ""
-                        }
-                    )
-
-            # Career Outlooks
-            careers = data.get("career_outlooks")
-            if careers and isinstance(careers, list):
-                CareerOutlook.objects.filter(programme=programme).delete() # clear old
-                for career in careers:
-                    if career and career.get("title"):
-                        CareerOutlook.objects.create(
-                            programme=programme,
-                            title=career.get("title"),
-                            description=career.get("description") or ""
-                        )
-
-            # Create Courses
-            count = 0
-            for year_data in data.get("structure", []):
-                year = year_data.get("year", 1)
-                semester = year_data.get("semester", 1)
+            for course_data in year_data.get("courses", []):
+                code = course_data.get("code", "N/A")
+                name = course_data.get("name", "Unknown Course")
+                credits_val = course_data.get("credits", 0)
                 
-                for course_data in year_data.get("courses", []):
-                    code = course_data.get("code", "N/A")
-                    name = course_data.get("name", "Unknown Course")
-                    credits_val = course_data.get("credits", 0)
-                    
-                    try:
-                        credits_str = str(credits_val).split()[0]
-                        if credits_str.replace('.', '', 1).isdigit():
-                             credits_val = int(float(credits_str))
-                        else:
-                             credits_val = 0
-                    except:
-                        credits_val = 0
+                try:
+                    credits_str = str(credits_val).split()[0]
+                    if credits_str.replace('.', '', 1).isdigit():
+                         credits_val = int(float(credits_str))
+                    else:
+                         credits_val = 0
+                except:
+                    credits_val = 0
 
-                    c_desc = course_data.get("description") or ""
-                    c_obj = course_data.get("objectives") or ""
+                c_desc = course_data.get("description") or ""
+                c_obj = course_data.get("objectives") or ""
 
-                    Course.objects.update_or_create(
-                        programme=programme,
-                        code=code,
-                        defaults={
-                            'name': name,
-                            'semester': semester,
-                            'year': year,
-                            'credits': credits_val,
-                            'description': c_desc,
-                            'objectives': c_obj
-                        }
-                    )
-                    count += 1
-            
-            self.stdout.write(self.style.SUCCESS(f"  Ingested {count} courses, updated admission & career profiles."))
-
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f"  Error: {e}"))
+                Course.objects.update_or_create(
+                    programme=programme,
+                    code=code,
+                    defaults={
+                        'name': name,
+                        'semester': semester,
+                        'year': year,
+                        'credits': credits_val,
+                        'description': c_desc,
+                        'objectives': c_obj
+                    }
+                )
+                count += 1
+        
+        self.stdout.write(self.style.SUCCESS(f"  Ingested {count} courses for {programme.name}."))

@@ -1,7 +1,9 @@
+import uuid
 from django.db import models
 from pgvector.django import VectorField
 
 class University(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     location = models.CharField(max_length=255, blank=True)
     website = models.URLField(blank=True)
@@ -9,12 +11,11 @@ class University(models.Model):
     description = models.TextField(blank=True)
     
     head_office = models.CharField(max_length=255, blank=True)
-    university_type = models.CharField(max_length=100, blank=True) # e.g. Private/Public
-    status = models.CharField(max_length=100, blank=True) # e.g. Active
+    university_type = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=100, blank=True)
     
-    # Contact & Details
     address = models.TextField(blank=True)
-    email = models.CharField(max_length=255, blank=True) # CharField to handle multiple emails if needed
+    email = models.CharField(max_length=255, blank=True)
     accreditation_status = models.CharField(max_length=255, blank=True)
     registration_no = models.CharField(max_length=100, blank=True)
     overview = models.TextField(blank=True, help_text="AI-generated high-level overview.")
@@ -31,21 +32,19 @@ class University(models.Model):
         return self.name
 
 class Programme(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     university = models.ForeignKey(University, on_delete=models.CASCADE, related_name='programmes', null=True)
     name = models.CharField(max_length=255, null=True)
     
-    # New fields from TCU Table
     award_level = models.CharField(max_length=100, default="Bachelor", help_text="e.g. Bachelor Degree, Diploma")
     duration_months = models.IntegerField(default=0)
     qualification_framework = models.CharField(max_length=50, blank=True, help_text="e.g. UQF 10")
     study_mode = models.CharField(max_length=50, blank=True, help_text="e.g. Full Time")
 
-    # Keep these for backward/future compatibility or derived values
-    duration_years = models.FloatField(default=3) # Derived from months if needed
+    duration_years = models.FloatField(default=3)
     description = models.TextField(blank=True)
+    career_outlooks = models.JSONField(default=list, blank=True, help_text="List of extracted career objects")
     
-    # Text embedding for RAG
-    # Using 768 dimensions (Gemini text-embedding-004 standard)
     embedding = VectorField(dimensions=768, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -55,9 +54,7 @@ class Programme(models.Model):
         return f"{self.name} - {self.university.name}"
 
 class Course(models.Model):
-    """
-    Represents a specific unit/module within a programme (e.g. 'Introduction to CS').
-    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     programme = models.ForeignKey(Programme, on_delete=models.CASCADE, related_name='courses')
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, blank=True)
@@ -65,8 +62,6 @@ class Course(models.Model):
     year = models.IntegerField(default=1, help_text="Year of study (e.g. 1, 2, 3)")
     credits = models.IntegerField(default=0)
     description = models.TextField(blank=True)
-    
-    # Often courses have specific objectives
     objectives = models.TextField(blank=True)
     
     embedding = VectorField(dimensions=768, blank=True, null=True)
@@ -75,6 +70,7 @@ class Course(models.Model):
         return self.name
 
 class AdmissionRequirement(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     programme = models.OneToOneField(Programme, on_delete=models.CASCADE, related_name='admission_requirement')
     description = models.TextField(help_text="General description of requirements")
     min_points = models.FloatField(default=0.0, help_text="Minimum points required")
@@ -85,12 +81,4 @@ class AdmissionRequirement(models.Model):
     def __str__(self):
         return f"Requirements for {self.programme.name}"
 
-class CareerOutlook(models.Model):
-    programme = models.ForeignKey(Programme, on_delete=models.CASCADE, related_name='career_outlooks')
-    title = models.CharField(max_length=255, help_text="Job title or Career path")
-    description = models.TextField(blank=True)
-    
-    embedding = VectorField(dimensions=768, blank=True, null=True)
 
-    def __str__(self):
-        return self.title

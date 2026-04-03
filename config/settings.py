@@ -47,7 +47,10 @@ INSTALLED_APPS = [
 
     # Local
     'universities',
+    'users',
 ]
+
+AUTH_USER_MODEL = 'users.User'
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
