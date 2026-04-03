@@ -119,7 +119,7 @@ class Command(BaseCommand):
         # Generate University Overview & Global Description
         self.generate_university_overview(model, sample_file, uni, website_text)
 
-        programmes = Programme.objects.filter(university=uni, award_level__icontains="Bachelor")
+        programmes = Programme.objects.filter(university=uni)
         if options['programme']:
             programmes = programmes.filter(name__icontains=options['programme'])
         

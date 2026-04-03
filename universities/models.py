@@ -19,6 +19,8 @@ class University(models.Model):
     registration_no = models.CharField(max_length=100, blank=True)
     overview = models.TextField(blank=True, help_text="AI-generated high-level overview.")
     
+    embedding = VectorField(dimensions=768, blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -43,7 +45,6 @@ class Programme(models.Model):
     description = models.TextField(blank=True)
     
     # Text embedding for RAG
-    # Text embedding for RAG
     # Using 768 dimensions (Gemini text-embedding-004 standard)
     embedding = VectorField(dimensions=768, blank=True, null=True)
 
@@ -67,6 +68,8 @@ class Course(models.Model):
     
     # Often courses have specific objectives
     objectives = models.TextField(blank=True)
+    
+    embedding = VectorField(dimensions=768, blank=True, null=True)
 
     def __str__(self):
         return self.name
@@ -76,6 +79,8 @@ class AdmissionRequirement(models.Model):
     description = models.TextField(help_text="General description of requirements")
     min_points = models.FloatField(default=0.0, help_text="Minimum points required")
     required_subjects = models.TextField(blank=True, help_text="Comma-separated list of required subjects (e.g. Physics, Math)")
+    
+    embedding = VectorField(dimensions=768, blank=True, null=True)
 
     def __str__(self):
         return f"Requirements for {self.programme.name}"
@@ -84,6 +89,8 @@ class CareerOutlook(models.Model):
     programme = models.ForeignKey(Programme, on_delete=models.CASCADE, related_name='career_outlooks')
     title = models.CharField(max_length=255, help_text="Job title or Career path")
     description = models.TextField(blank=True)
+    
+    embedding = VectorField(dimensions=768, blank=True, null=True)
 
     def __str__(self):
         return self.title
