@@ -1,7 +1,10 @@
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, views, status, response
 from django_filters.rest_framework import DjangoFilterBackend
+from pgvector.django import CosineDistance
+import google.generativeai as genai
+import os
 from .models import University, Programme
-from .serializers import UniversitySerializer, ProgrammeSerializer
+from .serializers import UniversitySerializer, ProgrammeSerializer, ProgrammeDetailSerializer
 
 class UniversityViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = University.objects.all().order_by('name')
@@ -22,3 +25,113 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
             from .serializers import ProgrammeDetailSerializer
             return ProgrammeDetailSerializer
         return ProgrammeSerializer
+
+class RecommendationView(views.APIView):
+    def post(self, request):
+        interests = request.data.get('interests', '')
+        # grades = request.data.get('grades', {}) # Future hard filtering
+        # combination = request.data.get('combination', '') # Future hard filtering
+
+        if not interests:
+             return response.Response({"error": "Interests required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Generate Embedding for User Query
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+             return response.Response({"error": "Server misconfigured (API Key)"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        genai.configure(api_key=api_key)
+        
+        try:
+            result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=interests,
+                task_type="retrieval_query"
+            )
+            user_embedding = result['embedding']
+            
+            # 2. Vector Search (Cosine Distance)
+            # Find top 5 nearest neighbours
+            matches = Programme.objects.order_by(CosineDistance('embedding', user_embedding))[:5]
+            
+            # Serialize
+            serializer = ProgrammeSerializer(matches, many=True)
+            return response.Response(serializer.data)
+
+        except Exception as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ChatView(views.APIView):
+    def post(self, request):
+        message = request.data.get('message', '')
+        history = request.data.get('history', []) # Expects list of {role: 'user'/'model', parts: [text]}
+
+        if not message:
+            return response.Response({"error": "Message required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+             return response.Response({"error": "Server misconfigured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        genai.configure(api_key=api_key)
+
+        try:
+            # 1. Retrieve Context (RAG)
+            # Embed query
+            embed_result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=message,
+                task_type="retrieval_query"
+            )
+            query_vector = embed_result['embedding']
+            
+            # Vector Search (Top 5 relevant programmes)
+            matches = Programme.objects.order_by(CosineDistance('embedding', query_vector))[:5]
+            
+            context_pieces = []
+            for p in matches:
+                info = f"- Programme: {p.name} at {p.university.name if p.university else 'Unknown University'}\n"
+                info += f"  Award: {p.award_level}, Mode: {p.study_mode}\n"
+                info += f"  Description: {p.description[:300]}..." # Truncate for token efficiency
+                context_pieces.append(info)
+            
+            context_str = "\n".join(context_pieces)
+            
+            # 2. Generate Response
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            
+            # Construct System Prompt (injected into the prompt effectively)
+            system_instruction = """You are the UniGuide AI Student Advisor, a helpful but neutral academic guide for Tanzanian universities.
+            Your goal is to empower students to make their own informed decisions.
+
+            GUIDELINES:
+            1. **Be Neutral & Unbiased**: Do not favor one university over another unless the data explicitly supports a comparison requested by the student.
+            2. **Encourage Exploration**: Never give a "final absolute answer" (e.g., "You must take this course"). Instead, say "You might consider X because..." or "This program aligns with your interests in Y." Always encourage the student to research further.
+            3. **General Inquiries**: If a student asks a broad question (e.g., "What is the best engineering course?"), DO NOT limit your answer to just the specific universities in the context. Instead, provide a general overview of the field and suggest they look into various institutions.
+            4. **Admit Unknowns**: If the provided Context does not contain the specific answer, explicitly state: "I don't have that specific information in my current database." Then, advise them to check official university prospectuses or websites.
+            5. **Consultative Approach**: If a student asks "Which course should I take?" or similar broad questions, DO NOT immediately list courses. Instead, ask clarifying questions first (e.g., "What subjects do you enjoy?", "Do you prefer practical or theoretical work?", "What were your best subjects in high school?"). LISTEN to the student before recommending.
+            6. **Be Useful**: Provide concrete details from the Context (durations, subjects, awards) when they are relevant and factual.
+
+            INSTRUCTIONS:
+            - Answer based on the provided Context and your general academic knowledge.
+            - Format your response nicely with markdown (bullet points, bold text).
+            """
+            
+            full_prompt = f"{system_instruction}\n\nCONTEXT FROM DATABASE:\n{context_str}\n\nSTUDENT QUESTION:\n{message}"
+            
+            # Note: For simplicity in this stateless API, we just treat history + new prompt as the chat.
+            # In a real app, we might check 'history' format. 
+            # Here, let's just send the full prompt for a single-turn RAG (simplest robust start).
+            # If we want multi-turn memory, we'd append history. 
+            # Let's support basic history if provided in Gemini format.
+            
+            chat_session = model.start_chat(history=history or [])
+            response_obj = chat_session.send_message(full_prompt)
+            
+            return response.Response({
+                "response": response_obj.text,
+                "context_used": [p.name for p in matches] # Helpful for debugging/transparency
+            })
+
+        except Exception as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -1,3 +1,4 @@
+
 import os
 import time
 import json
@@ -9,12 +10,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Configuration: Map filenames to University Names (or substrings)
+PDF_MAPPING = {
+    'udsm.pdf': 'University of Dar es Salaam',
+    'mzumbe.pdf': 'Mzumbe University',
+    # Add more mappings here as needed
+}
+
 class Command(BaseCommand):
-    help = 'Ingests UDSM prospectus PDF and extracts course details using Gemini 1.5 Flash.'
+    help = 'Ingests university prospectus PDFs and extracts course details using Gemini 1.5 Flash.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--limit', type=int, default=0, help='Limit number of programmes to process (0 for all)')
+        parser.add_argument('--limit', type=int, default=0, help='Limit number of programmes to process per university (0 for all)')
         parser.add_argument('--programme', type=str, help='Process a specific programme by name (partial match)')
+        parser.add_argument('--file', type=str, help='Specific PDF file to process (must be in backend/)')
+        parser.add_argument('--university', type=str, help='Specific University name (if using --file)')
 
     def handle(self, *args, **options):
         api_key = os.getenv("GEMINI_API_KEY")
@@ -24,27 +34,47 @@ class Command(BaseCommand):
 
         genai.configure(api_key=api_key)
         
-        # 1. Find UDSM
+        # Determine targets
+        targets = []
+        if options['file'] and options['university']:
+            targets.append((options['file'], options['university']))
+        elif options['file'] or options['university']:
+            self.stdout.write(self.style.ERROR("If specifying --file or --university, you must provide BOTH."))
+            return
+        else:
+            # Auto-detect mode
+            for filename, uni_name in PDF_MAPPING.items():
+                if os.path.exists(filename):
+                    targets.append((filename, uni_name))
+                else:
+                    self.stdout.write(self.style.WARNING(f"Skipping {filename} (not found)"))
+
+        if not targets:
+            self.stdout.write(self.style.WARNING("No valid targets found. Use --file/--uni or add files for: " + ", ".join(PDF_MAPPING.keys())))
+            return
+
+        for filename, uni_name in targets:
+            self.process_university(filename, uni_name, options)
+
+    def process_university(self, pdf_path, uni_name_query, options):
+        self.stdout.write(self.style.MIGRATE_HEADING(f"\nProcessing {uni_name_query} from {pdf_path}..."))
+        
+        # 1. Find University
         try:
-            udsm = University.objects.get(name__icontains="University of Dar es Salaam")
+            uni = University.objects.get(name__icontains=uni_name_query)
         except University.DoesNotExist:
-            self.stdout.write(self.style.ERROR("University of Dar es Salaam not found in DB."))
+            self.stdout.write(self.style.ERROR(f"University '{uni_name_query}' not found in DB."))
             return
         except University.MultipleObjectsReturned:
-            udsm = University.objects.filter(name__icontains="University of Dar es Salaam").first()
-            self.stdout.write(self.style.WARNING(f"Multiple UDSM found, using: {udsm.name}"))
+            uni = University.objects.filter(name__icontains=uni_name_query).first()
+            self.stdout.write(self.style.WARNING(f"Multiple universities found for '{uni_name_query}', using: {uni.name}"))
 
-        self.stdout.write(f"Target University: {udsm.name}")
+        self.stdout.write(f"Target: {uni.name}")
 
         # 2. Upload PDF
-        pdf_path = 'udsm.pdf'
-        if not os.path.exists(pdf_path):
-            self.stdout.write(self.style.ERROR(f"PDF not found at {pdf_path}"))
-            return
-
         self.stdout.write("Uploading PDF to Gemini...")
         try:
-            sample_file = genai.upload_file(path=pdf_path, display_name="UDSM Prospectus")
+            sample_file = genai.upload_file(path=pdf_path, display_name=f"{uni.name} Prospectus")
             self.stdout.write(f"Uploaded file: {sample_file.name}")
             
             # Wait for processing
@@ -62,14 +92,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Upload failed: {e}"))
             return
 
-        # 3. Get Programmes
-        # Filter for Bachelor programmes only as per user request
-        programmes = Programme.objects.filter(university=udsm, award_level__icontains="Bachelor")
+        # 3. Get Programmes (Bachelor Only)
+        programmes = Programme.objects.filter(university=uni, award_level__icontains="Bachelor")
         if options['programme']:
             programmes = programmes.filter(name__icontains=options['programme'])
-        
-        # Filter out ones already seemingly enriched? (Optional, but user said 'for each course' so maybe we re-run)
-        # For now, let's just create courses.
         
         if options['limit'] > 0:
             programmes = programmes[:options['limit']]
@@ -124,7 +150,11 @@ class Command(BaseCommand):
             if text.endswith("```"):
                 text = text[:-3]
             
-            data = json.loads(text)
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                self.stdout.write(self.style.ERROR("  Failed to parse JSON response."))
+                return
             
             if "error" in data:
                 self.stdout.write(self.style.WARNING(f"  Result: {data['error']}"))
@@ -149,7 +179,11 @@ class Command(BaseCommand):
                     
                     # Convert credits to int if possible
                     try:
-                        credits_val = int(float(str(credits_val).split()[0])) # Handle "3 credits" or "3.0"
+                        credits_str = str(credits_val).split()[0] # Handle "3 credits" or "3.0"
+                        if credits_str.replace('.', '', 1).isdigit():
+                             credits_val = int(float(credits_str))
+                        else:
+                             credits_val = 0
                     except:
                         credits_val = 0
 
@@ -158,12 +192,10 @@ class Command(BaseCommand):
                         code=code,
                         defaults={
                             'name': name,
-                            'semester': semester, # We might need to map Year/Sem to a single integer or store Year separately? 
-                                                  # Model says 'semester' (int). Let's use 1, 2, 3, 4 etc relative to programme or just 1/2?
-                                                  # Usually users want "Year 1 Sem 1". 
-                                                  # If model only has semester, I'll store (Year-1)*2 + Sem.
+                            'semester': semester,
+                            'year': year, # Use extracted year directly
                             'credits': credits_val,
-                            'description': f"Year {year}, Semester {semester}" # Store context in description for now
+                            'description': f"Year {year}, Semester {semester}" 
                         }
                     )
                     count += 1

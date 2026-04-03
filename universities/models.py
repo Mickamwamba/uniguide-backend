@@ -43,8 +43,9 @@ class Programme(models.Model):
     description = models.TextField(blank=True)
     
     # Text embedding for RAG
-    # Using 1536 dimensions (OpenAI text-embedding-3-small standard)
-    embedding = VectorField(dimensions=1536, blank=True, null=True)
+    # Text embedding for RAG
+    # Using 768 dimensions (Gemini text-embedding-004 standard)
+    embedding = VectorField(dimensions=768, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
