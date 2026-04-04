@@ -122,7 +122,13 @@ class Command(BaseCommand):
         self.generate_university_overview(client, sample_file, uni, website_text)
 
         programmes = Programme.objects.filter(university=uni, name__icontains='Bachelor')
-        if options['programme']:
+        
+        target_programme = options.get('programme')
+        if target_programme:
+            programmes = programmes.filter(name__icontains=target_programme)
+            self.stdout.write(f"Filtering for specific programme: {target_programme}")
+
+        if not programmes.exists():
             programmes = programmes.filter(name__icontains=options['programme'])
         
         if options['limit'] > 0:
@@ -321,9 +327,9 @@ class Command(BaseCommand):
 
                 Course.objects.update_or_create(
                     programme=programme,
-                    code=code,
+                    name=name,
                     defaults={
-                        'name': name,
+                        'code': code,
                         'semester': semester,
                         'year': year,
                         'credits': credits_val,

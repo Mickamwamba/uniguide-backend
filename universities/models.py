@@ -57,7 +57,7 @@ class Course(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     programme = models.ForeignKey(Programme, on_delete=models.CASCADE, related_name='courses')
     name = models.CharField(max_length=255)
-    code = models.CharField(max_length=50, blank=True)
+    code = models.CharField(max_length=50, blank=True, null=True)
     semester = models.IntegerField(help_text="Semester number (1-8)")
     year = models.IntegerField(default=1, help_text="Year of study (e.g. 1, 2, 3)")
     credits = models.IntegerField(default=0)
