@@ -44,7 +44,7 @@ class Command(BaseCommand):
     def generate_vector(self, text):
         try:
             result = self.client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-001",
                 contents=text,
             )
             return result.embeddings[0].values

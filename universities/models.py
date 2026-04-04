@@ -20,7 +20,7 @@ class University(models.Model):
     registration_no = models.CharField(max_length=100, blank=True)
     overview = models.TextField(blank=True, help_text="AI-generated high-level overview.")
     
-    embedding = VectorField(dimensions=768, blank=True, null=True)
+    embedding = VectorField(dimensions=3072, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -45,7 +45,7 @@ class Programme(models.Model):
     description = models.TextField(blank=True)
     career_outlooks = models.JSONField(default=list, blank=True, help_text="List of extracted career objects")
     
-    embedding = VectorField(dimensions=768, blank=True, null=True)
+    embedding = VectorField(dimensions=3072, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -64,7 +64,7 @@ class Course(models.Model):
     description = models.TextField(blank=True)
     objectives = models.TextField(blank=True)
     
-    embedding = VectorField(dimensions=768, blank=True, null=True)
+    embedding = VectorField(dimensions=3072, blank=True, null=True)
 
     def __str__(self):
         return self.name
@@ -76,7 +76,7 @@ class AdmissionRequirement(models.Model):
     min_points = models.FloatField(default=0.0, help_text="Minimum points required")
     required_subjects = models.TextField(blank=True, help_text="Comma-separated list of required subjects (e.g. Physics, Math)")
     
-    embedding = VectorField(dimensions=768, blank=True, null=True)
+    embedding = VectorField(dimensions=3072, blank=True, null=True)
 
     def __str__(self):
         return f"Requirements for {self.programme.name}"

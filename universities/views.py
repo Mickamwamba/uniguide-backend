@@ -41,7 +41,7 @@ class RecommendationView(views.APIView):
         
         try:
             result = client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-001",
                 contents=interests
             )
             user_embedding = result.embeddings[0].values
@@ -70,7 +70,7 @@ class ChatView(views.APIView):
 
         try:
             embed_result = client.models.embed_content(
-                model="text-embedding-004",
+                model="gemini-embedding-001",
                 contents=message
             )
             query_vector = embed_result.embeddings[0].values
