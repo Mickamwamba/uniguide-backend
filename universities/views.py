@@ -29,9 +29,11 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
 class RecommendationView(views.APIView):
     def post(self, request):
         interests = request.data.get('interests', '')
+        combination = request.data.get('combination', '')
+        personality = request.data.get('personality', {})
 
-        if not interests:
-             return response.Response({"error": "Interests required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not interests and not combination:
+             return response.Response({"error": "Profile data required"}, status=status.HTTP_400_BAD_REQUEST)
 
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -40,16 +42,46 @@ class RecommendationView(views.APIView):
         client = genai.Client(api_key=api_key)
         
         try:
+            # Phase 1: Agentic Synthesis
+            prompt = f"""
+            You are an expert Tanzanian University Admissions Advisor.
+            A high school student has submitted their profile. Your task is to synthesize a single, highly dense "Search String" paragraph that describes their ideal university degrees and career pathways. This string will be converted into a mathematical vector to search a database of university programmes.
+            
+            Student Profile:
+            - A-Level Combination: {combination}
+            - Stated Interests: {interests}
+            
+            Psychological Traits (Personality Quiz Answers Code: A, B, C, D, E):
+            - Ideal Work Environment Preference: {personality.get('environment', 'Not stated')}
+            - Preferred School Activity: {personality.get('activity', 'Not stated')}
+            - Societal Impact Goal: {personality.get('impact', 'Not stated')}
+            - Natural Group Role: {personality.get('role', 'Not stated')}
+            
+            Based on this raw data, generate a highly dense 100-word paragraph describing the exact types of degrees, specific majors, and career titles that perfectly match this student's academic constraints and psychological personality. Do not use conversational filler, just the dense descriptive string.
+            """
+            
+            synthesis_response = client.models.generate_content(
+                model='gemini-2.5-pro',
+                contents=prompt
+            )
+            synthesized_query = synthesis_response.text.strip()
+            
+            # Phase 2: Vector Generation
             result = client.models.embed_content(
                 model="gemini-embedding-001",
-                contents=interests
+                contents=synthesized_query
             )
             user_embedding = result.embeddings[0].values
             
+            # Phase 3: Semantic Search
             matches = Programme.objects.order_by(CosineDistance('embedding', user_embedding))[:5]
             
             serializer = ProgrammeSerializer(matches, many=True)
-            return response.Response(serializer.data)
+            
+            return response.Response({
+                "matches": serializer.data,
+                "ai_synthesis": synthesized_query
+            })
 
         except Exception as e:
             return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

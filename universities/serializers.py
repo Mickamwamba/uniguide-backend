@@ -25,8 +25,10 @@ class ProgrammeSerializer(serializers.ModelSerializer):
             'duration_months', 
             'qualification_framework', 
             'study_mode',
-            'description'
+            'description',
+            'career_outlooks'
         ]
+
 
 class CourseSerializer(serializers.ModelSerializer):
     class Meta:
