@@ -31,6 +31,8 @@ class Command(BaseCommand):
         parser.add_argument('--file', type=str, help='Specific PDF file to process (must be in backend/)')
         parser.add_argument('--university', type=str, help='Specific University name (if using --file)')
         parser.add_argument('--workers', type=int, default=3, help='Number of concurrent threads (default: 3)')
+        parser.add_argument('--model', type=str, default='gemini-2.5-pro', help='Gemini model name to use')
+        parser.add_argument('--delay', type=int, default=0, help='Seconds to sleep between extractions (only for 1 worker)')
 
     def handle(self, *args, **options):
         api_key = os.getenv("GEMINI_API_KEY")
@@ -58,7 +60,7 @@ class Command(BaseCommand):
             return
 
         for filename, uni_name in targets:
-            self.process_university(filename, uni_name, options, client)
+            self.process_university(filename, uni_name, options, client, options['model'])
 
     def scrape_website(self, url):
         try:
@@ -81,7 +83,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Scraping error for {url}: {e}"))
             return ""
 
-    def process_university(self, pdf_path, uni_name_query, options, client):
+    def process_university(self, pdf_path, uni_name_query, options, client, model_name):
         self.stdout.write(self.style.MIGRATE_HEADING(f"\nProcessing {uni_name_query} from {pdf_path}..."))
         
         try:
@@ -119,9 +121,9 @@ class Command(BaseCommand):
             return
 
         # Generate University Overview & Global Description
-        self.generate_university_overview(client, sample_file, uni, website_text)
+        self.generate_university_overview(client, sample_file, uni, website_text, model_name)
 
-        programmes = Programme.objects.filter(university=uni, name__icontains='Bachelor')
+        programmes = Programme.objects.filter(university=uni, name__icontains='Bachelor', courses__isnull=True).distinct()
         
         target_programme = options.get('programme')
         if target_programme:
@@ -129,7 +131,8 @@ class Command(BaseCommand):
             self.stdout.write(f"Filtering for specific programme: {target_programme}")
 
         if not programmes.exists():
-            programmes = programmes.filter(name__icontains=options['programme'])
+            self.stdout.write(self.style.WARNING(f"No Bachelor programmes found for {uni.name} matching filter."))
+            return
         
         if options['limit'] > 0:
             programmes = programmes[:options['limit']]
@@ -138,19 +141,17 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING(f"Processing {programmes.count()} programmes concurrently using {max_workers} threads..."))
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self.process_programme_with_retry, client, sample_file, prog): prog for prog in programmes}
-            for future in as_completed(futures):
-                prog = futures[future]
-                try:
-                    future.result()
-                except Exception as exc:
-                    self.stdout.write(self.style.ERROR(f"Unhandled thread exception for {prog.name}: {exc}"))
+            for prog in programmes:
+                self.process_programme_with_retry(client, sample_file, prog, model_name)
+                if max_workers == 1 and options['delay'] > 0:
+                    self.stdout.write(f"Sleeping for {options['delay']}s...")
+                    time.sleep(options['delay'])
 
-    def process_programme_with_retry(self, client, pdf_file, programme, max_retries=5):
+    def process_programme_with_retry(self, client, pdf_file, programme, model_name, max_retries=5):
         base_delay = 10
         for attempt in range(max_retries):
             try:
-                self.process_programme(client, pdf_file, programme)
+                self.process_programme(client, pdf_file, programme, model_name)
                 return True
             except Exception as e:
                 error_msg = str(e).lower()
@@ -165,7 +166,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.ERROR(f"  [Failed] Max retries reached for {programme.name}."))
         return False
 
-    def generate_university_overview(self, client, pdf_file, uni, website_text):
+    def generate_university_overview(self, client, pdf_file, uni, website_text, model_name):
         self.stdout.write("Generating University Overview and Context...")
         
         prompt = f"""
@@ -191,7 +192,7 @@ class Command(BaseCommand):
 
         try:
             response = client.models.generate_content(
-                model='gemini-2.5-pro',
+                model=model_name,
                 contents=[prompt, pdf_file]
             )
             text = response.text.strip()
@@ -211,7 +212,7 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"  Failed to generate university overview: {e}"))
 
-    def process_programme(self, client, pdf_file, programme):
+    def process_programme(self, client, pdf_file, programme, model_name):
         self.stdout.write(f"Extracting for: {programme.name}...")
         
         prompt = f"""
@@ -255,7 +256,7 @@ class Command(BaseCommand):
         """
 
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model=model_name,
             contents=[prompt, pdf_file]
         )
         text = response.text.strip()
