@@ -31,6 +31,7 @@ class RecommendationView(views.APIView):
         interests = request.data.get('interests', '')
         combination = request.data.get('combination', '')
         personality = request.data.get('personality', {})
+        grades = request.data.get('grades', {})
 
         if not interests and not combination:
              return response.Response({"error": "Profile data required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -42,26 +43,38 @@ class RecommendationView(views.APIView):
         client = genai.Client(api_key=api_key)
         
         try:
+            # Phase 0: Calculate Points & Initial Filtering
+            grade_values = {'A': 5, 'B': 4, 'C': 3, 'D': 2, 'E': 1, 'S': 0.5}
+            total_points = sum(grade_values.get(g, 0) for g in grades.values())
+            
+            # Phrase the points for the AI
+            grades_summary = ", ".join([f"{subj}: {g}" for subj, g in grades.items()])
+
             # Phase 1: Agentic Synthesis
             prompt = f"""
             You are an expert Tanzanian University Admissions Advisor.
-            A high school student has submitted their profile. Your task is to synthesize a single, highly dense "Search String" paragraph that describes their ideal university degrees and career pathways. This string will be converted into a mathematical vector to search a database of university programmes.
+            A high school student has submitted their profile. Your task is to synthesize a single, highly dense "Search String" paragraph that describes their ideal university degrees and career pathways.
             
             Student Profile:
             - A-Level Combination: {combination}
+            - Subjects & Grades: {grades_summary} (Total Points: {total_points})
             - Stated Interests: {interests}
             
-            Psychological Traits (Personality Quiz Answers Code: A, B, C, D, E):
-            - Ideal Work Environment Preference: {personality.get('environment', 'Not stated')}
-            - Preferred School Activity: {personality.get('activity', 'Not stated')}
-            - Societal Impact Goal: {personality.get('impact', 'Not stated')}
-            - Natural Group Role: {personality.get('role', 'Not stated')}
+            Psychological Traits:
+            - Ideal Work Environment: {personality.get('environment', 'Not stated')}
+            - Preferred Activity: {personality.get('activity', 'Not stated')}
+            - Societal Impact: {personality.get('impact', 'Not stated')}
+            - Natural Role: {personality.get('role', 'Not stated')}
             
-            Based on this raw data, generate a highly dense 100-word paragraph describing the exact types of degrees, specific majors, and career titles that perfectly match this student's academic constraints and psychological personality. Do not use conversational filler, just the dense descriptive string.
+            CRITICAL Tanzanian Context:
+            - If student points are very low (e.g. < 4), prioritize sub-degree / diploma recommendations.
+            - If student points are high (e.g. > 10), suggest competitive degrees like Engineering, Medicine, or Actuarial.
+            
+            Generate a 100-word paragraph describing exact types of degrees and career titles that match this student's ACADEMIC CAPACITY (grades) and personality.
             """
             
             synthesis_response = client.models.generate_content(
-                model='gemini-2.5-pro',
+                model='gemini-2.0-flash',
                 contents=prompt
             )
             synthesized_query = synthesis_response.text.strip()
@@ -73,14 +86,23 @@ class RecommendationView(views.APIView):
             )
             user_embedding = result.embeddings[0].values
             
-            # Phase 3: Semantic Search
-            matches = Programme.objects.order_by(CosineDistance('embedding', user_embedding))[:5]
+            # Phase 3: Semantic Search + Hard Constraints
+            # We filter by programmes whose average entry might be around the user's points
+            # NOTE: We can use the AdmissionRequirement model for hard cuts
+            base_query = Programme.objects.all()
+            
+            # Soft point filtering: If user has < 4 points, exclude Bachelor and focus on Diploma if possible
+            if total_points < 4:
+                 base_query = base_query.filter(award_level__icontains="Diploma")
+            
+            matches = base_query.order_by(CosineDistance('embedding', user_embedding))[:5]
             
             serializer = ProgrammeSerializer(matches, many=True)
             
             return response.Response({
                 "matches": serializer.data,
-                "ai_synthesis": synthesized_query
+                "ai_synthesis": synthesized_query,
+                "total_points": total_points
             })
 
         except Exception as e:
