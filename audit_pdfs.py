@@ -11,7 +11,7 @@ django.setup()
 from universities.models import University, Programme
 from django.db.models import Count
 
-print("=== Audit of Failed Course Extractions per University ===")
+print("=== Audit of Failed Course Extractions per University ===") 
 
 universities = University.objects.all()
 
