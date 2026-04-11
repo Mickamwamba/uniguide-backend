@@ -44,8 +44,8 @@ class RecommendationView(views.APIView):
         
         try:
             # Phase 0: Calculate Points & Initial Filtering
-            grade_values = {'A': 5, 'B': 4, 'C': 3, 'D': 2, 'E': 1, 'S': 0.5}
-            total_points = sum(grade_values.get(g, 0) for g in grades.values())
+            grade_values = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'S': 6, 'F': 7}
+            total_points = sum(grade_values.get(g, 7) for g in grades.values())
             
             # Phrase the points for the AI
             grades_summary = ", ".join([f"{subj}: {g}" for subj, g in grades.items()])
@@ -67,8 +67,9 @@ class RecommendationView(views.APIView):
             - Natural Role: {personality.get('role', 'Not stated')}
             
             CRITICAL Tanzanian Context:
-            - If student points are very low (e.g. < 4), prioritize sub-degree / diploma recommendations.
-            - If student points are high (e.g. > 10), suggest competitive degrees like Engineering, Medicine, or Actuarial.
+            - A-Level points are calculated where LOWER is BETTER (A=1, B=2, C=3, D=4, E=5, S=6, F=7). 3 points is the perfect absolute best score.
+            - If student points are very poor (e.g. > 13 points), prioritize sub-degree, diploma, or generic bachelor recommendations.
+            - If student points are excellent (e.g. <= 6 points), explicitly suggest highly competitive degrees like Engineering, Medicine, or Actuarial Science if their associated subjects match.
             
             Generate a 100-word paragraph describing exact types of degrees and career titles that match this student's ACADEMIC CAPACITY (grades) and personality.
             """
@@ -91,8 +92,8 @@ class RecommendationView(views.APIView):
             # NOTE: We can use the AdmissionRequirement model for hard cuts
             base_query = Programme.objects.all()
             
-            # Soft point filtering: If user has < 4 points, exclude Bachelor and focus on Diploma if possible
-            if total_points < 4:
+            # Soft point filtering: If user has > 13 points, they failed principle passes, so exclude Bachelor and focus on Diploma
+            if total_points > 13:
                  base_query = base_query.filter(award_level__icontains="Diploma")
             
             matches = base_query.order_by(CosineDistance('embedding', user_embedding))[:5]
