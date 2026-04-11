@@ -23,9 +23,12 @@ jobs:
             # Pull the latest code
             git pull origin master
             
-            # Upgrade docker-compose to V2 to permanently fix ContainerConfig KeyError
-            sudo curl -sL "https://github.com/docker/compose/releases/download/v2.26.1/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
+            # Upgrade docker-compose conditionally to prevent concurrent write locks
+            if ! /usr/local/bin/docker-compose --version | grep -q '2.26.1'; then
+              sudo rm -f /usr/local/bin/docker-compose || true
+              sudo curl -sL "https://github.com/docker/compose/releases/download/v2.26.1/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
 
             # Rebuild the API container and run migrations safely
             cd /var/www/projects/unipathfinder/backend
