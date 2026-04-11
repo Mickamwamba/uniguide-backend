@@ -1,0 +1,29 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute Deployment on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Navigate to the backend directory on the server
+            cd /var/www/projects/unipathfinder/backend
+            
+            # Pull the latest code
+            git pull origin master
+            
+            # Rebuild the API container and run migrations safely
+            cd ..
+            docker-compose up -d --build api
+            docker-compose exec -T api python manage.py migrate
