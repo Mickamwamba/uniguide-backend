@@ -25,5 +25,6 @@ jobs:
             
             # Rebuild the API container and run migrations safely
             cd ..
+            docker-compose rm -sf api
             docker-compose up -d --build api
             docker-compose exec -T api python manage.py migrate
