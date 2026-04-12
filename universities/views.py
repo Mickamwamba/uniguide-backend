@@ -50,10 +50,14 @@ class RecommendationView(views.APIView):
             # Phrase the points for the AI
             grades_summary = ", ".join([f"{subj}: {g}" for subj, g in grades.items()])
 
-            # Phase 1: Agentic Synthesis
+            import json
+            
+            # Phase 1: Agentic Synthesis (JSON Structured)
             prompt = f"""
             You are an expert Tanzanian University Admissions Advisor.
-            A high school student has submitted their profile. Your task is to synthesize a single, highly dense "Search String" paragraph that describes their ideal university degrees and career pathways.
+            A high school student has submitted their profile. Your task is to evaluate them and return a JSON object with EXACTLY two keys:
+            1. "search_string": A highly dense 100-word paragraph describing exact university degrees and career titles checking for their ACADEMIC CAPACITY. This string is purely for our internal semantic vector database search.
+            2. "user_summary": A friendly, neutral, and empowering 3-4 sentence paragraph speaking directly to the student. DO NOT judge their academic competency or dictate absolute advice based on their grades. Focus entirely on their personality and interests. Include 1 or 2 statements highlighting exciting potential career futures they could explore based on their profile. Be modest, encouraging, and empower them to discover their own paths. (e.g. "Your passion for [X] opens up possibilities to explore careers like [Y] or [Z]. The pathways below might inspire your journey...")
             
             Student Profile:
             - A-Level Combination: {combination}
@@ -68,22 +72,32 @@ class RecommendationView(views.APIView):
             
             CRITICAL Tanzanian Context:
             - A-Level points are calculated where LOWER is BETTER (A=1, B=2, C=3, D=4, E=5, S=6, F=7). 3 points is the perfect absolute best score.
-            - If student points are very poor (e.g. > 13 points), prioritize sub-degree, diploma, or generic bachelor recommendations.
-            - If student points are excellent (e.g. <= 6 points), explicitly suggest highly competitive degrees like Engineering, Medicine, or Actuarial Science if their associated subjects match.
+            - If points are very poor (> 13), prioritize diploma/sub-degree string vectors.
+            - If points are excellent (<= 6), explicitly suggest competitive degrees (Engineering/Medicine) if subjects match.
             
-            Generate a 100-word paragraph describing exact types of degrees and career titles that match this student's ACADEMIC CAPACITY (grades) and personality.
+            Respond strictly in valid JSON format. Do not use markdown backticks around the json.
             """
             
             synthesis_response = client.models.generate_content(
                 model='gemini-2.0-flash',
                 contents=prompt
             )
-            synthesized_query = synthesis_response.text.strip()
+            raw_text = synthesis_response.text.strip()
+            if raw_text.startswith("```json"): raw_text = raw_text[7:-3]
+            elif raw_text.startswith("```"): raw_text = raw_text[3:-3]
+                
+            try:
+                parsed_synthesis = json.loads(raw_text.strip())
+                search_string = parsed_synthesis.get("search_string", raw_text)
+                user_summary = parsed_synthesis.get("user_summary", raw_text)
+            except json.JSONDecodeError:
+                search_string = raw_text
+                user_summary = "Based on your academic profile and interests, here are the exact degree pathways we found perfectly suited for you!"
             
             # Phase 2: Vector Generation
             result = client.models.embed_content(
                 model="gemini-embedding-001",
-                contents=synthesized_query
+                contents=search_string
             )
             user_embedding = result.embeddings[0].values
             
@@ -102,7 +116,7 @@ class RecommendationView(views.APIView):
             
             return response.Response({
                 "matches": serializer.data,
-                "ai_synthesis": synthesized_query,
+                "ai_synthesis": user_summary,
                 "total_points": total_points
             })
 
