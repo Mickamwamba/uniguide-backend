@@ -31,8 +31,6 @@ class RecommendationView(views.APIView):
         interests = request.data.get('interests', '')
         combination = request.data.get('combination', '')
         personality = request.data.get('personality', {})
-        grades = request.data.get('grades', {})
-
         if not interests and not combination:
              return response.Response({"error": "Profile data required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -43,25 +41,17 @@ class RecommendationView(views.APIView):
         client = genai.Client(api_key=api_key)
         
         try:
-            # Phase 0: Calculate Points & Initial Filtering
-            grade_values = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'S': 6, 'F': 7}
-            total_points = sum(grade_values.get(g, 7) for g in grades.values())
-            
-            # Phrase the points for the AI
-            grades_summary = ", ".join([f"{subj}: {g}" for subj, g in grades.items()])
-
             import json
             
             # Phase 1: Agentic Synthesis (JSON Structured)
             prompt = f"""
             You are an expert Tanzanian University Admissions Advisor.
             A high school student has submitted their profile. Your task is to evaluate them and return a JSON object with EXACTLY two keys:
-            1. "search_string": A highly dense 100-word paragraph describing exact university degrees and career titles checking for their ACADEMIC CAPACITY. This string is purely for our internal semantic vector database search.
-            2. "user_summary": A friendly, neutral, and empowering 3-4 sentence paragraph speaking directly to the student. DO NOT judge their academic competency or dictate absolute advice based on their grades. Focus entirely on their personality and interests. Include 1 or 2 statements highlighting exciting potential career futures they could explore based on their profile. Be modest, encouraging, and empower them to discover their own paths. (e.g. "Your passion for [X] opens up possibilities to explore careers like [Y] or [Z]. The pathways below might inspire your journey...")
+            1. "search_string": A highly dense 100-word paragraph describing exact university degrees and career titles checking for their precise subject alignment and aspirations. This string is purely for our internal semantic vector database search.
+            2. "user_summary": A friendly, neutral, and empowering 3-4 sentence paragraph speaking directly to the student. Focus entirely on their personality and interests. Include 1 or 2 statements highlighting exciting potential career futures they could explore based on their profile. Be modest, encouraging, and empower them to discover their own paths. (e.g. "Your passion for [X] opens up possibilities to explore careers like [Y] or [Z]. The pathways below might inspire your journey...")
             
             Student Profile:
             - A-Level Combination: {combination}
-            - Subjects & Grades: {grades_summary} (Total Points: {total_points})
             - Stated Interests: {interests}
             
             Psychological Traits:
@@ -70,10 +60,8 @@ class RecommendationView(views.APIView):
             - Societal Impact: {personality.get('impact', 'Not stated')}
             - Natural Role: {personality.get('role', 'Not stated')}
             
-            CRITICAL Tanzanian Context:
-            - A-Level points are calculated where LOWER is BETTER (A=1, B=2, C=3, D=4, E=5, S=6, F=7). 3 points is the perfect absolute best score.
-            - If points are very poor (> 13), prioritize diploma/sub-degree string vectors.
-            - If points are excellent (<= 6), explicitly suggest competitive degrees (Engineering/Medicine) if subjects match.
+            CRITICAL Context:
+            - Focus entirely on parsing their combination and psychological traits to align them with perfect careers. Do not mention grades.
             
             Respond strictly in valid JSON format. Do not use markdown backticks around the json.
             """
@@ -103,14 +91,20 @@ class RecommendationView(views.APIView):
             
             # Phase 3: Semantic Search + Hard Constraints
             from difflib import SequenceMatcher
-            base_query = Programme.objects.all()
             
-            # Soft point filtering: If user has > 13 points, they failed principle passes, so exclude Bachelor and focus on Diploma
-            if total_points > 13:
-                 base_query = base_query.filter(award_level__icontains="Diploma")
+            # Formally exclude postgraduate programs
+            base_query = Programme.objects.exclude(
+                award_level__icontains="Master"
+            ).exclude(
+                award_level__icontains="PhD"
+            ).exclude(
+                award_level__icontains="Doctor"
+            ).exclude(
+                award_level__icontains="Postgraduate"
+            )
             
-            # Pull top 30 broad matches
-            matches = base_query.order_by(CosineDistance('embedding', user_embedding))[:30]
+            # Pull top 150 broad matches across all Bachelor/Diploma levels to ensure deep clustering netting
+            matches = base_query.order_by(CosineDistance('embedding', user_embedding))[:150]
 
             def is_similar(a, b):
                 # Clean filler words
@@ -176,13 +170,25 @@ class RecommendationView(views.APIView):
                 
                 clusters.append(current_cluster)
             
+            # Sort explicitly: Bachelor degrees strictly above Diplomas
+            def get_award_rank(level):
+                level_str = (level or "").lower()
+                if 'bachelor' in level_str or 'degree' in level_str:
+                    return 1
+                if 'diploma' in level_str:
+                    return 2
+                if 'certificate' in level_str:
+                    return 3
+                return 4
+                
+            clusters.sort(key=lambda c: get_award_rank(c.get('award_level')))
+            
             # Slice top 6 distinct generic degree clusters
             final_clusters = clusters[:6]
 
             return response.Response({
                 "matches": final_clusters,
-                "ai_synthesis": user_summary,
-                "total_points": total_points
+                "ai_synthesis": user_summary
             })
 
         except Exception as e:
