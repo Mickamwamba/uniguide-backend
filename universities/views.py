@@ -50,10 +50,14 @@ class RecommendationView(views.APIView):
             # Phrase the points for the AI
             grades_summary = ", ".join([f"{subj}: {g}" for subj, g in grades.items()])
 
-            # Phase 1: Agentic Synthesis
+            import json
+            
+            # Phase 1: Agentic Synthesis (JSON Structured)
             prompt = f"""
             You are an expert Tanzanian University Admissions Advisor.
-            A high school student has submitted their profile. Your task is to synthesize a single, highly dense "Search String" paragraph that describes their ideal university degrees and career pathways.
+            A high school student has submitted their profile. Your task is to evaluate them and return a JSON object with EXACTLY two keys:
+            1. "search_string": A highly dense 100-word paragraph describing exact university degrees and career titles checking for their ACADEMIC CAPACITY. This string is purely for our internal semantic vector database search.
+            2. "user_summary": A friendly, neutral, and empowering 3-4 sentence paragraph speaking directly to the student. DO NOT judge their academic competency or dictate absolute advice based on their grades. Focus entirely on their personality and interests. Include 1 or 2 statements highlighting exciting potential career futures they could explore based on their profile. Be modest, encouraging, and empower them to discover their own paths. (e.g. "Your passion for [X] opens up possibilities to explore careers like [Y] or [Z]. The pathways below might inspire your journey...")
             
             Student Profile:
             - A-Level Combination: {combination}
@@ -68,41 +72,116 @@ class RecommendationView(views.APIView):
             
             CRITICAL Tanzanian Context:
             - A-Level points are calculated where LOWER is BETTER (A=1, B=2, C=3, D=4, E=5, S=6, F=7). 3 points is the perfect absolute best score.
-            - If student points are very poor (e.g. > 13 points), prioritize sub-degree, diploma, or generic bachelor recommendations.
-            - If student points are excellent (e.g. <= 6 points), explicitly suggest highly competitive degrees like Engineering, Medicine, or Actuarial Science if their associated subjects match.
+            - If points are very poor (> 13), prioritize diploma/sub-degree string vectors.
+            - If points are excellent (<= 6), explicitly suggest competitive degrees (Engineering/Medicine) if subjects match.
             
-            Generate a 100-word paragraph describing exact types of degrees and career titles that match this student's ACADEMIC CAPACITY (grades) and personality.
+            Respond strictly in valid JSON format. Do not use markdown backticks around the json.
             """
             
             synthesis_response = client.models.generate_content(
                 model='gemini-2.0-flash',
                 contents=prompt
             )
-            synthesized_query = synthesis_response.text.strip()
+            raw_text = synthesis_response.text.strip()
+            if raw_text.startswith("```json"): raw_text = raw_text[7:-3]
+            elif raw_text.startswith("```"): raw_text = raw_text[3:-3]
+                
+            try:
+                parsed_synthesis = json.loads(raw_text.strip())
+                search_string = parsed_synthesis.get("search_string", raw_text)
+                user_summary = parsed_synthesis.get("user_summary", raw_text)
+            except json.JSONDecodeError:
+                search_string = raw_text
+                user_summary = "Based on your academic profile and interests, here are the exact degree pathways we found perfectly suited for you!"
             
             # Phase 2: Vector Generation
             result = client.models.embed_content(
                 model="gemini-embedding-001",
-                contents=synthesized_query
+                contents=search_string
             )
             user_embedding = result.embeddings[0].values
             
             # Phase 3: Semantic Search + Hard Constraints
-            # We filter by programmes whose average entry might be around the user's points
-            # NOTE: We can use the AdmissionRequirement model for hard cuts
+            from difflib import SequenceMatcher
             base_query = Programme.objects.all()
             
             # Soft point filtering: If user has > 13 points, they failed principle passes, so exclude Bachelor and focus on Diploma
             if total_points > 13:
                  base_query = base_query.filter(award_level__icontains="Diploma")
             
-            matches = base_query.order_by(CosineDistance('embedding', user_embedding))[:5]
+            # Pull top 30 broad matches
+            matches = base_query.order_by(CosineDistance('embedding', user_embedding))[:30]
+
+            def is_similar(a, b):
+                # Clean filler words
+                replaces = [("bachelor of science in ", ""), ("bachelor of arts in ", ""), 
+                            ("bachelor of ", ""), ("bsc in ", ""), ("ba in ", ""), 
+                            ("bsc ", ""), ("ba ", ""), ("b.sc ", ""), ("b.a ", "")]
+                clean_a, clean_b = a.lower(), b.lower()
+                for r, txt in replaces:
+                    clean_a = clean_a.replace(r, txt)
+                    clean_b = clean_b.replace(r, txt)
+                clean_a, clean_b = clean_a.strip(), clean_b.strip()
+                
+                if clean_a == clean_b: return True
+                if clean_a in clean_b or clean_b in clean_a: return True
+                
+                # Check word intersection threshold
+                words_a, words_b = set(clean_a.split()), set(clean_b.split())
+                if len(words_a) > 0 and len(words_b) > 0:
+                    shorter = min(len(words_a), len(words_b))
+                    # If 80%+ of words match regardless of order
+                    if len(words_a.intersection(words_b)) / shorter >= 0.8:
+                        return True
+                        
+                return SequenceMatcher(None, clean_a, clean_b).ratio() > 0.75
+
+            clusters = []
+            clustered_ids = set()
+
+            for i, p1 in enumerate(matches):
+                prog1_id = str(p1.id)
+                if prog1_id in clustered_ids:
+                    continue
+                
+                # Create a new Generic Programme Cluster
+                current_cluster = {
+                    "generic_name": p1.name,   
+                    "general_description": p1.description,
+                    "award_level": p1.award_level,
+                    "offered_at": [
+                        {
+                            "id": prog1_id,
+                            "university_name": p1.university.name if p1.university else "Unknown",
+                            "duration": getattr(p1, 'duration_months', None)
+                        }
+                    ]
+                }
+                clustered_ids.add(prog1_id)
+                
+                # Scan remaining matches to group similar degrees
+                for p2 in matches[i+1:]:
+                    prog2_id = str(p2.id)
+                    if prog2_id not in clustered_ids and is_similar(p1.name, p2.name):
+                        # Avoid adding the same university twice in the same generic cluster 
+                        existing_unis = [u['university_name'] for u in current_cluster['offered_at']]
+                        uni_name = p2.university.name if p2.university else "Unknown"
+                        if uni_name not in existing_unis:
+                            current_cluster['offered_at'].append({
+                                "id": prog2_id,
+                                "university_name": uni_name,
+                                "duration": getattr(p2, 'duration_months', None)
+                            })
+                            clustered_ids.add(prog2_id)
+                
+                clusters.append(current_cluster)
             
-            serializer = ProgrammeSerializer(matches, many=True)
-            
+            # Slice top 6 distinct generic degree clusters
+            final_clusters = clusters[:6]
+
             return response.Response({
-                "matches": serializer.data,
-                "ai_synthesis": synthesized_query,
+                "matches": final_clusters,
+                "ai_synthesis": user_summary,
                 "total_points": total_points
             })
 
