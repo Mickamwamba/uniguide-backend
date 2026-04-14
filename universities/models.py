@@ -81,4 +81,14 @@ class AdmissionRequirement(models.Model):
     def __str__(self):
         return f"Requirements for {self.programme.name}"
 
+class StudentLead(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    combination = models.CharField(max_length=100, blank=True)
+    interests = models.TextField(blank=True)
+    personality_data = models.JSONField(default=dict, blank=True)
+    captured_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self):
+        return self.email

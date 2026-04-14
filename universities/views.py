@@ -28,10 +28,10 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
 
 class RecommendationView(views.APIView):
     def post(self, request):
-        interests = request.data.get('interests', '')
         combination = request.data.get('combination', '')
+        interests = request.data.get('interests', '')
         personality = request.data.get('personality', {})
-        if not interests and not combination:
+        if not combination and not personality:
              return response.Response({"error": "Profile data required"}, status=status.HTTP_400_BAD_REQUEST)
 
         api_key = os.getenv("GEMINI_API_KEY")
@@ -52,13 +52,13 @@ class RecommendationView(views.APIView):
             
             Student Profile:
             - A-Level Combination: {combination}
-            - Stated Interests: {interests}
+            - Natural Stated Interests: {interests}
             
-            Psychological Traits:
-            - Ideal Work Environment: {personality.get('environment', 'Not stated')}
-            - Preferred Activity: {personality.get('activity', 'Not stated')}
-            - Societal Impact: {personality.get('impact', 'Not stated')}
-            - Natural Role: {personality.get('role', 'Not stated')}
+            Psychological & Career Traits:
+            - Favorite School Moment: {personality.get('school_moment', 'Not stated')}
+            - Natural Free-Time Hobby: {personality.get('hobby', 'Not stated')}
+            - Dealbreaker (What they hate): {personality.get('dealbreaker', 'Not stated')}
+            - Ultimate Career Endgame: {personality.get('endgame', 'Not stated')}
             
             CRITICAL Context:
             - Focus entirely on parsing their combination and psychological traits to align them with perfect careers. Do not mention grades.
@@ -254,5 +254,51 @@ class ChatView(views.APIView):
                 "context_used": [p.name for p in matches] 
             })
 
+        except Exception as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class CaptureLeadView(views.APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return response.Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from .models import StudentLead
+            from django.core.mail import send_mail
+            from django.conf import settings
+            
+            synthesis = request.data.get('synthesis', '')
+            matches_str = request.data.get('matches', '')
+            
+            lead, created = StudentLead.objects.update_or_create(
+                email=email,
+                defaults={
+                    'combination': request.data.get('combination', ''),
+                    'interests': request.data.get('interests', ''),
+                    'personality_data': request.data.get('personality', {}),
+                }
+            )
+            
+            # Send HTML Email Notification
+            html_message = f"""
+            <h2>Your AI Career Blueprint from Pathfinder</h2>
+            <p><strong>Hi there!</strong> We successfully saved your AI recommendations.</p>
+            <p><strong>Your Profile Summary:</strong><br/>{synthesis}</p>
+            <p><strong>Your Top Degree Matches:</strong><br/>{matches_str}</p>
+            <br/>
+            <p>Best regards,<br/>The Pathfinder Team</p>
+            """
+            
+            send_mail(
+                subject='Your Pathfinder AI Career Blueprint',
+                message=f"Your AI Blueprint\n\n{synthesis}\n\nTop Matches: {matches_str}",
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'awscloudup@gmail.com'),
+                recipient_list=[email],
+                html_message=html_message,
+                fail_silently=False
+            )
+            
+            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
