@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from universities.views import UniversityViewSet, ProgrammeViewSet, RecommendationView, ChatView
+from universities.views import UniversityViewSet, ProgrammeViewSet, RecommendationView, ChatView, CaptureLeadView
 
 router = DefaultRouter()
 router.register(r'universities', UniversityViewSet)
@@ -28,4 +28,5 @@ urlpatterns = [
     path('api/', include(router.urls)),
     path('api/recommend/', RecommendationView.as_view(), name='recommend'),
     path('api/chat/', ChatView.as_view(), name='chat'),
+    path('api/capture-lead/', CaptureLeadView.as_view(), name='capture_lead'),
 ]

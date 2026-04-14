@@ -28,10 +28,10 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
 
 class RecommendationView(views.APIView):
     def post(self, request):
-        interests = request.data.get('interests', '')
         combination = request.data.get('combination', '')
+        interests = request.data.get('interests', '')
         personality = request.data.get('personality', {})
-        if not interests and not combination:
+        if not combination and not personality:
              return response.Response({"error": "Profile data required"}, status=status.HTTP_400_BAD_REQUEST)
 
         api_key = os.getenv("GEMINI_API_KEY")
@@ -52,13 +52,13 @@ class RecommendationView(views.APIView):
             
             Student Profile:
             - A-Level Combination: {combination}
-            - Stated Interests: {interests}
+            - Natural Stated Interests: {interests}
             
-            Psychological Traits:
-            - Ideal Work Environment: {personality.get('environment', 'Not stated')}
-            - Preferred Activity: {personality.get('activity', 'Not stated')}
-            - Societal Impact: {personality.get('impact', 'Not stated')}
-            - Natural Role: {personality.get('role', 'Not stated')}
+            Psychological & Career Traits:
+            - Favorite School Moment: {personality.get('school_moment', 'Not stated')}
+            - Natural Free-Time Hobby: {personality.get('hobby', 'Not stated')}
+            - Dealbreaker (What they hate): {personality.get('dealbreaker', 'Not stated')}
+            - Ultimate Career Endgame: {personality.get('endgame', 'Not stated')}
             
             CRITICAL Context:
             - Focus entirely on parsing their combination and psychological traits to align them with perfect careers. Do not mention grades.
@@ -226,20 +226,22 @@ class ChatView(views.APIView):
             
             context_str = "\n".join(context_pieces)
             
-            system_instruction = """You are the UniGuide AI Student Advisor, a helpful but neutral academic guide for Tanzanian universities.
-            Your goal is to empower students to make their own informed decisions.
+            system_instruction = """You are the Pathfinder AI Student Advisor, a highly intelligent and engaging academic guide for Tanzanian universities.
+            Your goal is to empower students to make informed decisions, prioritizing bachelor degrees by default unless they specify otherwise.
 
             GUIDELINES:
-            1. **Be Neutral & Unbiased**: Do not favor one university over another unless the data explicitly supports a comparison requested by the student.
-            2. **Encourage Exploration**: Never give a "final absolute answer" (e.g., "You must take this course"). Instead, say "You might consider X because..." or "This program aligns with your interests in Y." Always encourage the student to research further.
-            3. **General Inquiries**: If a student asks a broad question (e.g., "What is the best engineering course?"), DO NOT limit your answer to just the specific universities in the context. Instead, provide a general overview of the field and suggest they look into various institutions.
-            4. **Admit Unknowns**: If the provided Context does not contain the specific answer, explicitly state: "I don't have that specific information in my current database." Then, advise them to check official university prospectuses or websites.
-            5. **Consultative Approach**: If a student asks "Which course should I take?" or similar broad questions, DO NOT immediately list courses. Instead, ask clarifying questions first (e.g., "What subjects do you enjoy?", "Do you prefer practical or theoretical work?", "What were your best subjects in high school?"). LISTEN to the student before recommending.
-            6. **Be Useful**: Provide concrete details from the Context (durations, subjects, awards) when they are relevant and factual.
+            1. **Be Immediately Useful**: Provide valuable, high-level insights into career fields right away. Generalize their interests to explain WHAT a field entails before diving into specific programs.
+            2. **Don't Over-Interrogate**: NEVER bombard the student with a list of questions. If their request is broad, give a thoughtful generalized breakdown of potential pathways, and optionally end with ONE soft clarifying question.
+            3. **Strict Progressive Disclosure**: ABSOLUTELY DO NOT mention specific university names (like UDSM, OUT, UDOM) or exact degree titles from the Context prematurely. Discuss general academic landscapes, fields of study, and career paths first. ONLY list specific university programs if the student explicitly commands you to (e.g. "Which universities offer this?").
+            4. **Be Neutral & Unbiased**: Never inject institutional bias.
+            5. **Admit Unknowns**: If the provided Context lacks specific admission details, advise them to check official university prospectuses.
+            6. **Be Concrete Later**: When they finally do ask for specific courses, only then provide concrete details from the Context (universities, durations, awards).
 
             INSTRUCTIONS:
             - Answer based on the provided Context and your general academic knowledge.
-            - Format your response nicely with markdown (bullet points, bold text).
+            - Before answering anything make sure you fully understand what the student is asking. NEVER list specific courses or universities from the context unless the student explicitly asks for them.
+            - Keep your responses structured, insightful, and warmly conversational.
+            - Format your response beautifully with markdown (bullet points, bold text).
             """
             
             full_prompt = f"{system_instruction}\n\nCONTEXT FROM DATABASE:\n{context_str}\n\nSTUDENT QUESTION:\n{message}"
@@ -252,5 +254,51 @@ class ChatView(views.APIView):
                 "context_used": [p.name for p in matches] 
             })
 
+        except Exception as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class CaptureLeadView(views.APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return response.Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from .models import StudentLead
+            from django.core.mail import send_mail
+            from django.conf import settings
+            
+            synthesis = request.data.get('synthesis', '')
+            matches_str = request.data.get('matches', '')
+            
+            lead, created = StudentLead.objects.update_or_create(
+                email=email,
+                defaults={
+                    'combination': request.data.get('combination', ''),
+                    'interests': request.data.get('interests', ''),
+                    'personality_data': request.data.get('personality', {}),
+                }
+            )
+            
+            # Send HTML Email Notification
+            html_message = f"""
+            <h2>Your AI Career Blueprint from Pathfinder</h2>
+            <p><strong>Hi there!</strong> We successfully saved your AI recommendations.</p>
+            <p><strong>Your Profile Summary:</strong><br/>{synthesis}</p>
+            <p><strong>Your Top Degree Matches:</strong><br/>{matches_str}</p>
+            <br/>
+            <p>Best regards,<br/>The Pathfinder Team</p>
+            """
+            
+            send_mail(
+                subject='Your Pathfinder AI Career Blueprint',
+                message=f"Your AI Blueprint\n\n{synthesis}\n\nTop Matches: {matches_str}",
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'awscloudup@gmail.com'),
+                recipient_list=[email],
+                html_message=html_message,
+                fail_silently=False
+            )
+            
+            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
