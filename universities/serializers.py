@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import University, Programme, Course
+from .models import University, Programme, Course, AdmissionRequirement
 
 class UniversitySerializer(serializers.ModelSerializer):
     class Meta:
@@ -34,11 +34,17 @@ class ProgrammeSerializer(serializers.ModelSerializer):
 
 class CourseSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Course # Assuming Course is imported from models, but it wasn't. Need to update imports too.
+        model = Course 
         fields = ['id', 'name', 'code', 'semester', 'year', 'credits', 'description']
+
+class AdmissionRequirementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdmissionRequirement
+        fields = ['id', 'pathway', 'description', 'alevel_requirements', 'min_gpa', 'min_grade', 'diploma_fields_accepted']
 
 class ProgrammeDetailSerializer(ProgrammeSerializer):
     courses = CourseSerializer(many=True, read_only=True)
+    admission_requirements = AdmissionRequirementSerializer(many=True, read_only=True)
     
     class Meta(ProgrammeSerializer.Meta):
-        fields = ProgrammeSerializer.Meta.fields + ['courses']
+        fields = ProgrammeSerializer.Meta.fields + ['courses', 'admission_requirements']

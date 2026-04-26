@@ -1,4 +1,5 @@
 from rest_framework import viewsets, filters, views, status, response
+from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from pgvector.django import CosineDistance
 from google import genai
@@ -26,6 +27,70 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
             from .serializers import ProgrammeDetailSerializer
             return ProgrammeDetailSerializer
         return ProgrammeSerializer
+
+    @action(detail=True, methods=['post'])
+    def verify(self, request, pk=None):
+        programme = self.get_object()
+        user_profile = request.data.get('userProfile', {})
+        pathway = user_profile.get('pathway')
+        
+        if not pathway:
+            return response.Response({'error': 'Missing pathway in user profile'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        reqs = programme.admission_requirements.filter(pathway=pathway)
+        if not reqs.exists():
+            return response.Response({
+                'qualified': False, 
+                'explanation': f'No specific admission requirements found for the {pathway} pathway.'
+            })
+            
+        req_text = reqs.first().description
+        
+        # Build Profile Details string
+        if pathway == 'ACSEE':
+            acsee = user_profile.get('acsee', {})
+            details = f"A-Level Combination: {acsee.get('combination', 'Unknown')}\nGrades: {acsee.get('grades', {})}"
+        else:
+            diploma = user_profile.get('diploma', {})
+            details = f"Diploma Field: {diploma.get('field', 'Unknown')}\nFinal GPA: {diploma.get('gpa', 'Unknown')}"
+
+        prompt = f"""
+        You are a strict Tanzanian University Admissions Checker.
+        A student has submitted their academic profile and wants to know if they qualify for the "{programme.name}".
+        
+        Student Pathway: {pathway}
+        {details}
+        
+        The mandatory admission requirements for this course via the {pathway} pathway are:
+        "{req_text}"
+        
+        Carefully evaluate if their provided grades or GPA completely satisfies the rule.
+        Return valid JSON strictly with two keys:
+        1. "qualified": boolean true or false.
+        2. "explanation": A 2-sentence explanation of why. If qualified, say congratulations and briefly explain why. If rejected, gently explain exactly what they are missing.
+        Do not use markdown backticks around the json.
+        """
+        
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+             return response.Response({"error": "Server misconfigured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+             
+        client = genai.Client(api_key=api_key)
+        
+        try:
+            import json
+            completion = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            raw_text = completion.text.strip()
+            if raw_text.startswith("```json"): raw_text = raw_text[7:-3]
+            elif raw_text.startswith("```"): raw_text = raw_text[3:-3]
+                
+            parsed = json.loads(raw_text.strip())
+            return response.Response(parsed)
+        except Exception as e:
+            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class RecommendationView(views.APIView):
     def post(self, request):
