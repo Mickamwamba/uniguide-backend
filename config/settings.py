@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from django.urls import reverse_lazy
 
 load_dotenv()
 
@@ -208,11 +209,6 @@ UNFOLD = {
                         "icon": "menu_book",
                         "link": "/admin/universities/programme/",
                     },
-                    {
-                        "title": "Student Leads",
-                        "icon": "person_pin_circle",
-                        "link": "/admin/universities/studentlead/",
-                    },
                 ],
             },
             {
@@ -233,6 +229,27 @@ UNFOLD = {
                         "title": "Page View Tracking",
                         "icon": "visibility",
                         "link": "/admin/analytics/pageviewlog/",
+                    },
+                ],
+            },
+            {
+                "title": "Support",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Support Inquiries",
+                        "icon": "mail",
+                        "link": reverse_lazy("admin:analytics_userinquiry_changelist"),
+                    },
+                    {
+                        "title": "Content Reports",
+                        "icon": "flag",
+                        "link": reverse_lazy("admin:analytics_contentreport_changelist"),
+                    },
+                    {
+                        "title": "Student Leads",
+                        "icon": "person_add",
+                        "link": reverse_lazy("admin:analytics_studentlead_changelist"),
                     },
                 ],
             },

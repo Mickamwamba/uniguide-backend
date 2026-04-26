@@ -365,50 +365,10 @@ class ChatView(views.APIView):
                 }, status=status.HTTP_429_TOO_MANY_REQUESTS)
             return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class CaptureLeadView(views.APIView):
-    authentication_classes = []
-    permission_classes = []
-    def post(self, request):
-        email = request.data.get('email')
-        if not email:
-            return response.Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            from .models import StudentLead
-            from django.core.mail import send_mail
-            from django.conf import settings
-            
-            synthesis = request.data.get('synthesis', '')
-            matches_str = request.data.get('matches', '')
-            
-            lead, created = StudentLead.objects.update_or_create(
-                email=email,
-                defaults={
-                    'combination': request.data.get('combination', ''),
-                    'interests': request.data.get('interests', ''),
-                    'personality_data': request.data.get('personality', {}),
-                }
-            )
-            
-            # Send HTML Email Notification
-            html_message = f"""
-            <h2>Your AI Career Blueprint from Pathfinder</h2>
-            <p><strong>Hi there!</strong> We successfully saved your AI recommendations.</p>
-            <p><strong>Your Profile Summary:</strong><br/>{synthesis}</p>
-            <p><strong>Your Top Degree Matches:</strong><br/>{matches_str}</p>
-            <br/>
-            <p>Best regards,<br/>The Pathfinder Team</p>
-            """
-            
-            send_mail(
-                subject='Your Pathfinder AI Career Blueprint',
-                message=f"Your AI Blueprint\n\n{synthesis}\n\nTop Matches: {matches_str}",
-                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'awscloudup@gmail.com'),
-                recipient_list=[email],
-                html_message=html_message,
-                fail_silently=False
-            )
-            
-            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "Pathfinder AI is currently handling a high volume of requests. Please try again in a few moments!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

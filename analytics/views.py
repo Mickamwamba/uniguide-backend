@@ -1,5 +1,5 @@
 from rest_framework import views, response, status
-from .models import SearchLog, GuidanceSessionLog, PageViewLog, EligibilityCheckLog
+from .models import SearchLog, GuidanceSessionLog, PageViewLog, EligibilityCheckLog, UserInquiry, ContentReport, StudentLead
 
 class TelemetryTrackingView(views.APIView):
     """
@@ -86,3 +86,82 @@ class TelemetryTrackingView(views.APIView):
         if x_forwarded_for:
             return x_forwarded_for.split(',')[0]
         return request.META.get('REMOTE_ADDR')
+
+class SubmitInquiryView(views.APIView):
+    """
+    Handles new support inquiries from the Contact Us form.
+    """
+    authentication_classes = []
+    permission_classes = []
+    
+    def post(self, request):
+        full_name = request.data.get('full_name')
+        message = request.data.get('message')
+        
+        if not full_name or not message:
+            return response.Response({"error": "Name and message are required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            UserInquiry.objects.create(
+                full_name=full_name,
+                email=request.data.get('email') or None,
+                phone=request.data.get('phone') or None,
+                message=message
+            )
+            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print(f"Error saving inquiry: {e}")
+            return response.Response({"error": "Server error while saving inquiry. Please try again later."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SubmitReportView(views.APIView):
+    """
+    Handles reports about inaccurate or broken data.
+    """
+    authentication_classes = []
+    permission_classes = []
+    
+    def post(self, request):
+        report_type = request.data.get('report_type')
+        description = request.data.get('description')
+        url = request.data.get('url')
+        
+        if not report_type or not description:
+            return response.Response({"error": "Report type and description are required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            ContentReport.objects.create(
+                report_type=report_type,
+                description=description,
+                url=url,
+                contact_email=request.data.get('contact_email') or None
+            )
+            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print(f"Error saving content report: {e}")
+            return response.Response({"error": "Server error while saving report."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SubmitLeadView(views.APIView):
+    """
+    Captures student info from the 'Save Results' / Community sign-up form.
+    """
+    authentication_classes = []
+    permission_classes = []
+    
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return response.Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            StudentLead.objects.create(
+                email=email,
+                combination=request.data.get('combination', ''),
+                interests=request.data.get('interests', ''),
+                personality=request.data.get('personality_text') or request.data.get('personality', {}),
+                ai_synthesis=request.data.get('synthesis') or request.data.get('ai_synthesis', ''),
+                matches_summary=request.data.get('matches', '')
+            )
+            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print(f"Error saving student lead: {e}")
+            return response.Response({"error": "Server error while saving your profile."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
