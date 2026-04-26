@@ -57,3 +57,83 @@ class EligibilityCheckLog(SessionLog):
     def __str__(self):
         status = "PASSED" if self.ai_decision else "FAILED"
         return f"Eligibility Check [{status}] -> Prog:{self.programme_id}"
+
+class UserInquiry(models.Model):
+    """Captures messages from the 'Contact Us' form."""
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=50, blank=True, null=True)
+    message = models.TextField()
+    is_resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    class Meta:
+        verbose_name_plural = "User Inquiries"
+
+    def __str__(self):
+        return f"Inquiry from {self.full_name} ({self.created_at.strftime('%Y-%m-%d')})"
+class ContentReport(models.Model):
+    """Captures user reports about inaccurate or broken content."""
+    REPORT_TYPES = [
+        ('INACCURATE', 'Inaccurate Information'),
+        ('BROKEN_LINK', 'Broken Link'),
+        ('OTHER', 'Other Issue')
+    ]
+
+    report_type = models.CharField(max_length=50, choices=REPORT_TYPES, default='INACCURATE')
+    description = models.TextField()
+    url = models.URLField(max_length=500, blank=True, null=True)
+    contact_email = models.EmailField(blank=True, null=True)
+    
+    status = models.CharField(
+        max_length=20, 
+        choices=[('NEW', 'New'), ('REVIEWING', 'Reviewing'), ('RESOLVED', 'Resolved'), ('IGNORED', 'Ignored')],
+        default='NEW'
+    )
+    
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name_plural = "Content Reports"
+
+    def __str__(self):
+        return f"Report: {self.report_type} on {self.created_at.strftime('%Y-%m-%d')}"
+
+class StudentLead(models.Model):
+    """
+    Captured when a user 'saves' their guidance results.
+    Links an email to their academic background and matches.
+    """
+    email = models.EmailField()
+    combination = models.CharField(max_length=255, blank=True)
+    interests = models.TextField(blank=True)
+    personality = models.JSONField(default=dict, blank=True)
+    ai_synthesis = models.TextField(blank=True)
+    matches_summary = models.TextField(blank=True) # Comma separated names
+    
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name_plural = "Student Leads"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Lead: {self.email} ({self.created_at.strftime('%Y-%m-%d')})"
+
+    @property
+    def synthesis_snippet(self):
+        if not self.ai_synthesis:
+            return "-"
+        return (self.ai_synthesis[:75] + "...") if len(self.ai_synthesis) > 75 else self.ai_synthesis
+
+    @property
+    def personality_display(self):
+        from django.utils.html import format_html
+        from django.utils.safestring import mark_safe
+        if not self.personality or not isinstance(self.personality, dict):
+            return "No data"
+        
+        items = []
+        for q, a in self.personality.items():
+            items.append(format_html("<b>{}:</b> {}", q, a))
+        return mark_safe("<br>".join(items))

@@ -14,6 +14,7 @@ class UniversitySerializer(serializers.ModelSerializer):
 class ProgrammeSerializer(serializers.ModelSerializer):
     university_name = serializers.CharField(source='university.name', read_only=True)
     university_short_name = serializers.CharField(source='university.short_name', read_only=True)
+    university_website = serializers.URLField(source='university.website', read_only=True)
 
     class Meta:
         model = Programme
@@ -23,6 +24,7 @@ class ProgrammeSerializer(serializers.ModelSerializer):
             'university', 
             'university_name',
             'university_short_name',
+            'university_website',
             'award_level', 
             'duration_months', 
             'qualification_framework', 
