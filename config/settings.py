@@ -30,6 +30,16 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-oxih-057q8k6=dm#-mt
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+CSRF_TRUSTED_ORIGINS = [
+    'https://unipathfinder.co.tz',
+    'https://www.unipathfinder.co.tz',
+    'http://localhost:5173',
+]
+
+# Required for serving over HTTPS behind a proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
 
 
 # Application definition
