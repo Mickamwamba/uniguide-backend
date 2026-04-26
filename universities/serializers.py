@@ -5,7 +5,7 @@ class UniversitySerializer(serializers.ModelSerializer):
     class Meta:
         model = University
         fields = [
-            'id', 'name', 'location', 'website', 'logo_url',
+            'id', 'name', 'short_name', 'tcu_code', 'location', 'website', 'logo_url',
             'head_office', 'university_type', 'status', 
             'address', 'email', 'accreditation_status', 'registration_no',
             'overview'
@@ -13,6 +13,7 @@ class UniversitySerializer(serializers.ModelSerializer):
 
 class ProgrammeSerializer(serializers.ModelSerializer):
     university_name = serializers.CharField(source='university.name', read_only=True)
+    university_short_name = serializers.CharField(source='university.short_name', read_only=True)
 
     class Meta:
         model = Programme
@@ -21,6 +22,7 @@ class ProgrammeSerializer(serializers.ModelSerializer):
             'name', 
             'university', 
             'university_name',
+            'university_short_name',
             'award_level', 
             'duration_months', 
             'qualification_framework', 

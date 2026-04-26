@@ -11,13 +11,14 @@ class UniversityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = UniversitySerializer
     pagination_class = None
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['name', 'head_office', 'university_type']
+    search_fields = ['name', 'short_name', 'head_office', 'university_type']
+    filterset_fields = ['head_office', 'university_type', 'status']
     filterset_fields = ['head_office', 'university_type', 'status']
 
 class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Programme.objects.all().select_related('university').order_by('name')
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['name', 'university__name', 'description']
+    search_fields = ['name', 'university__name', 'university__short_name']
     filterset_fields = ['award_level', 'study_mode', 'university']
 
     def get_serializer_class(self):
@@ -147,7 +148,18 @@ class RecommendationView(views.APIView):
                         {
                             "id": prog1_id,
                             "university_name": p1.university.name if p1.university else "Unknown",
-                            "duration": getattr(p1, 'duration_months', None)
+                            "university_short_name": p1.university.short_name if p1.university else "",
+                            "duration": getattr(p1, 'duration_years', None) or getattr(p1, 'duration_months', None),
+                            "requirements": [
+                                {
+                                    "pathway": r.pathway,
+                                    "description": r.description,
+                                    "alevel_requirements": r.alevel_requirements,
+                                    "min_gpa": r.min_gpa,
+                                    "min_grade": r.min_grade,
+                                    "diploma_fields": r.diploma_fields_accepted
+                                } for r in p1.admission_requirements.all()
+                            ]
                         }
                     ]
                 }
@@ -160,11 +172,23 @@ class RecommendationView(views.APIView):
                         # Avoid adding the same university twice in the same generic cluster 
                         existing_unis = [u['university_name'] for u in current_cluster['offered_at']]
                         uni_name = p2.university.name if p2.university else "Unknown"
+                        uni_short = p2.university.short_name if p2.university else ""
                         if uni_name not in existing_unis:
                             current_cluster['offered_at'].append({
                                 "id": prog2_id,
                                 "university_name": uni_name,
-                                "duration": getattr(p2, 'duration_months', None)
+                                "university_short_name": uni_short,
+                                "duration": getattr(p2, 'duration_years', None) or getattr(p2, 'duration_months', None),
+                                "requirements": [
+                                    {
+                                        "pathway": r.pathway,
+                                        "description": r.description,
+                                        "alevel_requirements": r.alevel_requirements,
+                                        "min_gpa": r.min_gpa,
+                                        "min_grade": r.min_grade,
+                                        "diploma_fields": r.diploma_fields_accepted
+                                    } for r in p2.admission_requirements.all()
+                                ]
                             })
                             clustered_ids.add(prog2_id)
                 
