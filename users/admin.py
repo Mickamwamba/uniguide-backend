@@ -1,5 +1,8 @@
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin
+from unfold.admin import ModelAdmin
 from .models import User
 
-admin.site.register(User, UserAdmin)
+@admin.register(User)
+class CustomUserAdmin(ModelAdmin):
+    list_display = ('email', 'is_staff', 'is_superuser')
+    search_fields = ('email',)

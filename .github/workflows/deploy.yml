@@ -33,4 +33,4 @@ jobs:
             # Rebuild the API container and run migrations safely
             cd /var/www/projects/unipathfinder/backend
             docker-compose up -d --build api
-            docker-compose exec -T api python manage.py migrate
+            docker-compose exec -T api python manage.py migrate --noinput

@@ -1,4 +1,5 @@
 from rest_framework import viewsets, filters, views, status, response
+from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from pgvector.django import CosineDistance
 from google import genai
@@ -11,13 +12,14 @@ class UniversityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = UniversitySerializer
     pagination_class = None
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['name', 'head_office', 'university_type']
+    search_fields = ['name', 'short_name', 'head_office', 'university_type']
+    filterset_fields = ['head_office', 'university_type', 'status']
     filterset_fields = ['head_office', 'university_type', 'status']
 
 class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Programme.objects.all().select_related('university').order_by('name')
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
-    search_fields = ['name', 'university__name', 'description']
+    search_fields = ['name', 'university__name', 'university__short_name']
     filterset_fields = ['award_level', 'study_mode', 'university']
 
     def get_serializer_class(self):
@@ -26,7 +28,78 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
             return ProgrammeDetailSerializer
         return ProgrammeSerializer
 
+    @action(detail=True, methods=['post'])
+    def verify(self, request, pk=None):
+        programme = self.get_object()
+        user_profile = request.data.get('userProfile', {})
+        pathway = user_profile.get('pathway')
+        
+        if not pathway:
+            return response.Response({'error': 'Missing pathway in user profile'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        reqs = programme.admission_requirements.filter(pathway=pathway)
+        if not reqs.exists():
+            return response.Response({
+                'qualified': False, 
+                'explanation': f'No specific admission requirements found for the {pathway} pathway.'
+            })
+            
+        req_text = reqs.first().description
+        
+        # Build Profile Details string
+        if pathway == 'ACSEE':
+            acsee = user_profile.get('acsee', {})
+            details = f"A-Level Combination: {acsee.get('combination', 'Unknown')}\nGrades: {acsee.get('grades', {})}"
+        else:
+            diploma = user_profile.get('diploma', {})
+            details = f"Diploma Field: {diploma.get('field', 'Unknown')}\nFinal GPA: {diploma.get('gpa', 'Unknown')}"
+
+        prompt = f"""
+        You are a strict Tanzanian University Admissions Checker.
+        A student has submitted their academic profile and wants to know if they qualify for the "{programme.name}".
+        
+        Student Pathway: {pathway}
+        {details}
+        
+        The mandatory admission requirements for this course via the {pathway} pathway are:
+        "{req_text}"
+        
+        Carefully evaluate if their provided grades or GPA completely satisfies the rule.
+        Return valid JSON strictly with two keys:
+        1. "qualified": boolean true or false.
+        2. "explanation": A 2-sentence explanation of why. If qualified, say congratulations and briefly explain why. If rejected, gently explain exactly what they are missing.
+        Do not use markdown backticks around the json.
+        """
+        
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+             return response.Response({"error": "Server misconfigured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+             
+        client = genai.Client(api_key=api_key)
+        
+        try:
+            import json
+            completion = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            raw_text = completion.text.strip()
+            if raw_text.startswith("```json"): raw_text = raw_text[7:-3]
+            elif raw_text.startswith("```"): raw_text = raw_text[3:-3]
+                
+            parsed = json.loads(raw_text.strip())
+            return response.Response(parsed)
+        except Exception as e:
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "The AI is currently busy helping many other students. Please try again in a heartbeat!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class RecommendationView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
     def post(self, request):
         combination = request.data.get('combination', '')
         interests = request.data.get('interests', '')
@@ -147,7 +220,18 @@ class RecommendationView(views.APIView):
                         {
                             "id": prog1_id,
                             "university_name": p1.university.name if p1.university else "Unknown",
-                            "duration": getattr(p1, 'duration_months', None)
+                            "university_short_name": p1.university.short_name if p1.university else "",
+                            "duration": getattr(p1, 'duration_years', None) or getattr(p1, 'duration_months', None),
+                            "requirements": [
+                                {
+                                    "pathway": r.pathway,
+                                    "description": r.description,
+                                    "alevel_requirements": r.alevel_requirements,
+                                    "min_gpa": r.min_gpa,
+                                    "min_grade": r.min_grade,
+                                    "diploma_fields": r.diploma_fields_accepted
+                                } for r in p1.admission_requirements.all()
+                            ]
                         }
                     ]
                 }
@@ -160,11 +244,23 @@ class RecommendationView(views.APIView):
                         # Avoid adding the same university twice in the same generic cluster 
                         existing_unis = [u['university_name'] for u in current_cluster['offered_at']]
                         uni_name = p2.university.name if p2.university else "Unknown"
+                        uni_short = p2.university.short_name if p2.university else ""
                         if uni_name not in existing_unis:
                             current_cluster['offered_at'].append({
                                 "id": prog2_id,
                                 "university_name": uni_name,
-                                "duration": getattr(p2, 'duration_months', None)
+                                "university_short_name": uni_short,
+                                "duration": getattr(p2, 'duration_years', None) or getattr(p2, 'duration_months', None),
+                                "requirements": [
+                                    {
+                                        "pathway": r.pathway,
+                                        "description": r.description,
+                                        "alevel_requirements": r.alevel_requirements,
+                                        "min_gpa": r.min_gpa,
+                                        "min_grade": r.min_grade,
+                                        "diploma_fields": r.diploma_fields_accepted
+                                    } for r in p2.admission_requirements.all()
+                                ]
                             })
                             clustered_ids.add(prog2_id)
                 
@@ -192,9 +288,16 @@ class RecommendationView(views.APIView):
             })
 
         except Exception as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "Our AI advisor is currently handling a high volume of requests. Please wait a moment and try again!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChatView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
     def post(self, request):
         message = request.data.get('message', '')
         history = request.data.get('history', [])
@@ -255,9 +358,16 @@ class ChatView(views.APIView):
             })
 
         except Exception as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "Pathfinder AI is currently handling a high volume of requests. Please try again in a few moments!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CaptureLeadView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
     def post(self, request):
         email = request.data.get('email')
         if not email:

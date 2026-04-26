@@ -29,4 +29,5 @@ urlpatterns = [
     path('api/recommend/', RecommendationView.as_view(), name='recommend'),
     path('api/chat/', ChatView.as_view(), name='chat'),
     path('api/capture-lead/', CaptureLeadView.as_view(), name='capture_lead'),
+    path('api/analytics/', include('analytics.urls')),
 ]
