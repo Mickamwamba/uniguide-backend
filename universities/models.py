@@ -58,6 +58,7 @@ class University(models.Model):
     address = models.TextField(blank=True)
     email = models.CharField(max_length=255, blank=True, null=True)
     accreditation_status = models.CharField(max_length=255, blank=True)
+    rank = models.IntegerField(default=100, help_text="Global/Local rank for dashboard prioritization")
     registration_no = models.CharField(max_length=100, blank=True)
     overview = models.TextField(blank=True, help_text="AI-generated high-level overview.")
     
@@ -89,6 +90,7 @@ class Programme(models.Model):
     
     academic_year = models.CharField(max_length=50, blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    is_stem = models.BooleanField(default=False, help_text="Whether this is a Science, Tech, Engineering, or Math course")
     
     qualification_framework = models.CharField(max_length=50, blank=True, help_text="e.g. UQF 10")
     study_mode = models.CharField(max_length=50, blank=True, help_text="e.g. Full Time")

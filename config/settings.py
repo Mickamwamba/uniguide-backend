@@ -35,6 +35,7 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 # Application definition
 
 INSTALLED_APPS = [
+    'unfold',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -51,6 +52,7 @@ INSTALLED_APPS = [
     # Local
     'universities',
     'users',
+    'analytics',
 ]
 
 AUTH_USER_MODEL = 'users.User'
@@ -154,3 +156,75 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.environ.get('MAILJET_API_KEY')
 EMAIL_HOST_PASSWORD = os.environ.get('MAILJET_SECRET_KEY')
 DEFAULT_FROM_EMAIL = 'awscloudup@gmail.com'
+
+# Admin Customization (Unfold)
+UNFOLD = {
+    "SITE_TITLE": "UniGuide Analytics",
+    "SITE_HEADER": "UniGuide Control Center",
+    "SITE_SYMBOL": "speed", # Material Symbols
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "COLORS": {
+        "primary": {
+            "50": "250 245 255",
+            "100": "243 232 255",
+            "200": "233 213 255",
+            "300": "216 180 254",
+            "400": "192 132 252",
+            "500": "168 85 247",
+            "600": "147 51 234",
+            "700": "126 34 206",
+            "800": "107 33 168",
+            "900": "88 28 135",
+            "950": "59 7 100",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": True,
+        "navigation": [
+            {
+                "title": "Core Intelligence",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Universities",
+                        "icon": "school",
+                        "link": "/admin/universities/university/",
+                    },
+                    {
+                        "title": "Programmes",
+                        "icon": "menu_book",
+                        "link": "/admin/universities/programme/",
+                    },
+                    {
+                        "title": "Student Leads",
+                        "icon": "person_pin_circle",
+                        "link": "/admin/universities/studentlead/",
+                    },
+                ],
+            },
+            {
+                "title": "Telemetry & Funnel",
+                "separator": True,
+                "items": [
+                    {
+                        "title": "Search Analytics",
+                        "icon": "search_insights",
+                        "link": "/admin/analytics/searchlog/",
+                    },
+                    {
+                        "title": "AI Guidance Logs",
+                        "icon": "clinical_notes",
+                        "link": "/admin/analytics/guidancesessionlog/",
+                    },
+                    {
+                        "title": "Page View Tracking",
+                        "icon": "visibility",
+                        "link": "/admin/analytics/pageviewlog/",
+                    },
+                ],
+            },
+        ],
+    },
+}

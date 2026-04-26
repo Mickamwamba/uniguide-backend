@@ -90,9 +90,16 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
             parsed = json.loads(raw_text.strip())
             return response.Response(parsed)
         except Exception as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "The AI is currently busy helping many other students. Please try again in a heartbeat!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class RecommendationView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
     def post(self, request):
         combination = request.data.get('combination', '')
         interests = request.data.get('interests', '')
@@ -281,9 +288,16 @@ class RecommendationView(views.APIView):
             })
 
         except Exception as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "Our AI advisor is currently handling a high volume of requests. Please wait a moment and try again!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChatView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
     def post(self, request):
         message = request.data.get('message', '')
         history = request.data.get('history', [])
@@ -344,9 +358,16 @@ class ChatView(views.APIView):
             })
 
         except Exception as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            error_msg = str(e)
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return response.Response({
+                    "error": "Pathfinder AI is currently handling a high volume of requests. Please try again in a few moments!"
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class CaptureLeadView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
     def post(self, request):
         email = request.data.get('email')
         if not email:

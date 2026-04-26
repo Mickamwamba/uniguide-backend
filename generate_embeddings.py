@@ -21,7 +21,7 @@ def generate():
         
     client = genai.Client(api_key=api_key)
     
-    missing = Programme.objects.filter(description="").exclude(university=None)
+    missing = Programme.objects.filter(embedding__isnull=True).exclude(university=None)
     total = missing.count()
     print(f"Found {total} programmes missing AI descriptions and embeddings.")
     
