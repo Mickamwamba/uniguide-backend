@@ -111,7 +111,7 @@ class SubmitInquiryView(views.APIView):
             return response.Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception as e:
             print(f"Error saving inquiry: {e}")
-            return response.Response({"error": "Server error while saving inquiry. Please try again later."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return response.Response({"error": "We couldn't submit your inquiry right now. Please try again in a moment."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SubmitReportView(views.APIView):
     """
@@ -138,7 +138,7 @@ class SubmitReportView(views.APIView):
             return response.Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception as e:
             print(f"Error saving content report: {e}")
-            return response.Response({"error": "Server error while saving report."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return response.Response({"error": "Submission failed. Our team has been notified!"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SubmitLeadView(views.APIView):
     """
@@ -164,4 +164,4 @@ class SubmitLeadView(views.APIView):
             return response.Response({"success": True}, status=status.HTTP_201_CREATED)
         except Exception as e:
             print(f"Error saving student lead: {e}")
-            return response.Response({"error": "Server error while saving your profile."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return response.Response({"error": "We couldn't save your results right now. Please try again or copy them for now."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
