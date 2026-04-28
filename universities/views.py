@@ -4,6 +4,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from pgvector.django import CosineDistance
 from google import genai
 import os
+import json
+from openai import OpenAI
 from .models import University, Programme
 from .serializers import UniversitySerializer, ProgrammeSerializer, ProgrammeDetailSerializer
 
@@ -13,7 +15,6 @@ class UniversityViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['name', 'short_name', 'head_office', 'university_type']
-    filterset_fields = ['head_office', 'university_type', 'status']
     filterset_fields = ['head_office', 'university_type', 'status']
 
 class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
@@ -107,16 +108,21 @@ class RecommendationView(views.APIView):
         if not combination and not personality:
              return response.Response({"error": "Profile data required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-             return response.Response({"error": "Server misconfigured (API Key)"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+
+        if not gemini_api_key:
+             return response.Response({"error": "We're experiencing a minor hiccup with our matching engine. Please try again in a few moments."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        client = genai.Client(api_key=api_key)
+        # Phase 1: OpenAI Synthesis (JSON Structured)
+        # We switch to OpenAI for reasoning to avoid Gemini 429 rate limits
+        if not openai_api_key:
+             return response.Response({"error": "We're currently experiencing a minor hiccup with our matching engine. Please try again in a few moments."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        openai_client = OpenAI(api_key=openai_api_key)
         
         try:
-            import json
-            
-            # Phase 1: Agentic Synthesis (JSON Structured)
+            # Prompt is optimized for gpt-4o-mini
             prompt = f"""
             You are an expert Tanzanian University Admissions Advisor.
             A high school student has submitted their profile. Your task is to evaluate them and return a JSON object with EXACTLY two keys:
@@ -135,28 +141,27 @@ class RecommendationView(views.APIView):
             
             CRITICAL Context:
             - Focus entirely on parsing their combination and psychological traits to align them with perfect careers. Do not mention grades.
-            
-            Respond strictly in valid JSON format. Do not use markdown backticks around the json.
             """
             
-            synthesis_response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
+            completion = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
             )
-            raw_text = synthesis_response.text.strip()
-            if raw_text.startswith("```json"): raw_text = raw_text[7:-3]
-            elif raw_text.startswith("```"): raw_text = raw_text[3:-3]
+            
+            raw_text = completion.choices[0].message.content.strip()
                 
             try:
-                parsed_synthesis = json.loads(raw_text.strip())
+                parsed_synthesis = json.loads(raw_text)
                 search_string = parsed_synthesis.get("search_string", raw_text)
                 user_summary = parsed_synthesis.get("user_summary", raw_text)
             except json.JSONDecodeError:
                 search_string = raw_text
                 user_summary = "Based on your academic profile and interests, here are the exact degree pathways we found perfectly suited for you!"
             
-            # Phase 2: Vector Generation
-            result = client.models.embed_content(
+            # Phase 2: Vector Generation (Still using Gemini to match existing DB)
+            gemini_client = genai.Client(api_key=gemini_api_key)
+            result = gemini_client.models.embed_content(
                 model="gemini-embedding-001",
                 contents=search_string
             )
@@ -289,11 +294,14 @@ class RecommendationView(views.APIView):
 
         except Exception as e:
             error_msg = str(e)
+            print(f"[Recommendation Error] -> {error_msg}")
             if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                 return response.Response({
                     "error": "Our AI advisor is currently handling a high volume of requests. Please wait a moment and try again!"
                 }, status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return response.Response({
+                "error": "We're experiencing a minor hiccup while processing your results. Please hold on and try again!"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ChatView(views.APIView):
     authentication_classes = []

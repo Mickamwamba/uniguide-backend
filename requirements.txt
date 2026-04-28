@@ -59,3 +59,4 @@ gunicorn==23.0.0
 whitenoise==6.9.0
 dj-database-url==2.3.0
 django-unfold==0.90.0
+openai==2.32.0
