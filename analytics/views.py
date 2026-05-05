@@ -53,7 +53,13 @@ class TelemetryTrackingView(views.APIView):
                         if 'converted_to_lead' in payload: 
                             log.converted_to_lead = payload['converted_to_lead']
                         log.save()
-                
+            elif event_type == 'guidance_feedback':
+                log = GuidanceSessionLog.objects.filter(session_id=session_id).order_by('-created_at').first()
+                if log:
+                    log.rating = payload.get('rating')
+                    log.feedback_comment = payload.get('comment', '')
+                    log.save()
+                    
             elif event_type == 'page_view':
                 PageViewLog.objects.create(
                     session_id=session_id,

@@ -42,10 +42,10 @@ class SearchLogAdmin(ModelAdmin):
 
 @admin.register(GuidanceSessionLog)
 class GuidanceSessionLogAdmin(ModelAdmin):
-    list_display = ('session_id', 'pathway', 'converted_to_lead', 'created_at')
-    list_filter = ('pathway', 'converted_to_lead', 'created_at')
-    search_fields = ('session_id', 'raw_interests')
-    readonly_fields = ('session_id', 'pathway', 'raw_interests', 'academic_inputs', 'psychometric_inputs', 'ai_synthesis', 'ai_recommendations', 'converted_to_lead', 'ip_address', 'user_agent', 'created_at')
+    list_display = ('session_id', 'pathway', 'rating', 'converted_to_lead', 'created_at')
+    list_filter = ('pathway', 'rating', 'converted_to_lead', 'created_at')
+    search_fields = ('session_id', 'raw_interests', 'feedback_comment')
+    readonly_fields = ('session_id', 'pathway', 'rating', 'feedback_comment', 'raw_interests', 'academic_inputs', 'psychometric_inputs', 'ai_synthesis', 'ai_recommendations', 'converted_to_lead', 'ip_address', 'user_agent', 'created_at')
     ordering = ('-created_at',)
 
     def has_add_permission(self, request):
