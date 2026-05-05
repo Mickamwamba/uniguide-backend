@@ -21,14 +21,16 @@ class TelemetryTrackingView(views.APIView):
             
         try:
             if event_type == 'search':
-                SearchLog.objects.create(
-                    session_id=session_id,
-                    query_string=payload.get('query', ''),
-                    filters_applied=payload.get('filters', {}),
-                    results_count=payload.get('results_count', 0),
-                    ip_address=self._get_client_ip(request),
-                    user_agent=request.META.get('HTTP_USER_AGENT', '')
-                )
+                query = payload.get('query', '').strip()
+                if query:
+                    SearchLog.objects.create(
+                        session_id=session_id,
+                        query_string=query,
+                        filters_applied=payload.get('filters', {}),
+                        results_count=payload.get('results_count', 0),
+                        ip_address=self._get_client_ip(request),
+                        user_agent=request.META.get('HTTP_USER_AGENT', '')
+                    )
             
             elif event_type == 'guidance_conversion':
                 # If they are actively generating new recommendations, we MUST create a brand new log instance.

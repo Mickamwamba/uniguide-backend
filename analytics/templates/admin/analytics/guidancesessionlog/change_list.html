@@ -1,0 +1,117 @@
+{% extends "admin/change_list.html" %}
+
+{% block result_list %}
+    {% if dashboard_stats %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+            <!-- Card 1: Filtered Sessions -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Total (Filtered)</div>
+                <div class="text-3xl font-bold text-gray-900 dark:text-gray-100">{{ dashboard_stats.total_sessions }}</div>
+            </div>
+
+            <!-- Card 2: Today's Sessions -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Sessions Today</div>
+                <div class="text-3xl font-bold text-gray-900 dark:text-gray-100">{{ dashboard_stats.total_today }}</div>
+            </div>
+
+            <!-- Card 3: Pathway Breakdown -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Pathways</div>
+                <div class="flex items-end gap-3">
+                    <div>
+                        <span class="text-xs uppercase text-gray-400">ACSEE</span>
+                        <div class="text-xl font-bold text-gray-900 dark:text-gray-100">{{ dashboard_stats.acsee_count }}</div>
+                    </div>
+                    <div class="border-l border-gray-200 dark:border-gray-700 pl-3">
+                        <span class="text-xs uppercase text-gray-400">Diploma</span>
+                        <div class="text-xl font-bold text-gray-900 dark:text-gray-100">{{ dashboard_stats.diploma_count }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 4: Avg Rating -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Avg Student Rating</div>
+                <div class="flex items-center gap-2">
+                    <div class="text-3xl font-bold text-gray-900 dark:text-gray-100">{{ dashboard_stats.avg_rating }}</div>
+                    <div class="text-amber-400 text-2xl">★</div>
+                </div>
+            </div>
+
+            <!-- Card 5: Conversion Rate -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Conversion Rate</div>
+                <div class="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{{ dashboard_stats.conversion_rate }}%</div>
+                <div class="text-xs text-gray-400 mt-1">Sessions to Lead conversion</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+            <!-- Pathway Donut Chart -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4 font-bold">Pathway Distribution</h3>
+                <div style="height: 200px; position: relative;">
+                    <canvas id="pathwayChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Ratings Bar Chart -->
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4 font-bold">Rating Distribution</h3>
+                <div style="height: 200px; position: relative;">
+                    <canvas id="ratingsChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Pathway Chart
+                new Chart(document.getElementById('pathwayChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['ACSEE', 'Diploma'],
+                        datasets: [{
+                            data: [{{ dashboard_stats.acsee_count }}, {{ dashboard_stats.diploma_count }}],
+                            backgroundColor: ['#6366f1', '#10b981'],
+                            hoverOffset: 4,
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { 
+                        maintainAspectRatio: false, 
+                        cutout: '70%',
+                        plugins: {
+                            legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } }
+                        }
+                    }
+                });
+
+                // Ratings Chart
+                new Chart(document.getElementById('ratingsChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['1★', '2★', '3★', '4★', '5★'],
+                        datasets: [{
+                            label: 'Sessions',
+                            data: {{ dashboard_stats.rating_counts|safe }},
+                            backgroundColor: '#fbbf24',
+                            borderRadius: 6
+                        }]
+                    },
+                    options: { 
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { 
+                            y: { beginAtZero: true, grid: { display: false }, ticks: { precision: 0 } },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            });
+        </script>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}
