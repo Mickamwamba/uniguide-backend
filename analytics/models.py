@@ -29,11 +29,14 @@ class GuidanceSessionLog(SessionLog):
     pathway = models.CharField(max_length=50, blank=True)  # ACSEE, DIPLOMA
     academic_inputs = models.JSONField(default=dict, blank=True)
     psychometric_inputs = models.JSONField(default=dict, blank=True)
+    raw_interests = models.TextField(blank=True, help_text="The raw text the student typed about their interests.")
     
-    # Store recommended slugs or IDs to know exactly what the AI spat out
     ai_recommendations = models.JSONField(default=list, blank=True)
     ai_synthesis = models.TextField(blank=True)
     converted_to_lead = models.BooleanField(default=False)
+    
+    rating = models.IntegerField(null=True, blank=True, help_text="User rating (1-5)")
+    feedback_comment = models.TextField(blank=True, help_text="Optional feedback comment from the user")
     
     def __str__(self):
         return f"Guidance [{self.pathway}] - Converted: {self.converted_to_lead}"

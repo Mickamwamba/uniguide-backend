@@ -1,0 +1,55 @@
+{% extends "admin/change_list.html" %}
+
+{% block result_list %}
+    {% if univ_stats %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+            <!-- Top Universities -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-xl overflow-hidden">
+                <div class="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4">
+                    <h3 class="text-white font-bold flex items-center gap-2">
+                        <span class="material-symbols-outlined !text-xl">trending_up</span>
+                        Most Visited Universities
+                    </h3>
+                </div>
+                <div class="p-6 space-y-5">
+                    {% for item in univ_stats.top %}
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between text-sm">
+                                <span class="font-semibold text-gray-700 dark:text-gray-300 truncate mr-4">{{ item.name }}</span>
+                                <span class="font-bold text-emerald-600 dark:text-emerald-400">{{ item.count }}</span>
+                            </div>
+                            <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5">
+                                <div class="bg-emerald-500 h-1.5 rounded-full" style="width: {% if forloop.first %}100%{% else %}{{ item.count|divisibleby:univ_stats.top.0.count|default:50 }}%{% endif %}"></div>
+                            </div>
+                        </div>
+                    {% empty %}
+                        <p class="text-xs text-gray-400 italic">No university views yet</p>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Universities Needing Promotion -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-xl overflow-hidden">
+                <div class="bg-gray-50 dark:bg-gray-900 px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+                    <h3 class="text-gray-900 dark:text-gray-100 font-bold flex items-center gap-2">
+                        <span class="material-symbols-outlined text-rose-500 !text-xl">error_outline</span>
+                        Institutions Needing Promotion
+                    </h3>
+                </div>
+                <div class="p-6">
+                    <ul class="space-y-3">
+                        {% for item in univ_stats.bottom %}
+                            <li class="flex items-center gap-3 group text-sm text-gray-600 dark:text-gray-400">
+                                <div class="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700 group-hover:bg-rose-400 transition-colors"></div>
+                                <span class="truncate">{{ item.name }}</span>
+                            </li>
+                        {% empty %}
+                            <li class="text-center py-4 text-xs text-gray-400 italic">All institutions have been visited!</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

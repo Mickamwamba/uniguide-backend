@@ -21,14 +21,16 @@ class TelemetryTrackingView(views.APIView):
             
         try:
             if event_type == 'search':
-                SearchLog.objects.create(
-                    session_id=session_id,
-                    query_string=payload.get('query', ''),
-                    filters_applied=payload.get('filters', {}),
-                    results_count=payload.get('results_count', 0),
-                    ip_address=self._get_client_ip(request),
-                    user_agent=request.META.get('HTTP_USER_AGENT', '')
-                )
+                query = payload.get('query', '').strip()
+                if query:
+                    SearchLog.objects.create(
+                        session_id=session_id,
+                        query_string=query,
+                        filters_applied=payload.get('filters', {}),
+                        results_count=payload.get('results_count', 0),
+                        ip_address=self._get_client_ip(request),
+                        user_agent=request.META.get('HTTP_USER_AGENT', '')
+                    )
             
             elif event_type == 'guidance_conversion':
                 # If they are actively generating new recommendations, we MUST create a brand new log instance.
@@ -39,6 +41,7 @@ class TelemetryTrackingView(views.APIView):
                         pathway=payload.get('pathway', ''),
                         academic_inputs=payload.get('academic_inputs', {}),
                         psychometric_inputs=payload.get('psychometric_inputs', {}),
+                        raw_interests=payload.get('raw_interests', ''),
                         ai_recommendations=payload.get('ai_recommendations', []),
                         ai_synthesis=payload.get('ai_synthesis', ''),
                         converted_to_lead=payload.get('converted_to_lead', False),
@@ -52,7 +55,13 @@ class TelemetryTrackingView(views.APIView):
                         if 'converted_to_lead' in payload: 
                             log.converted_to_lead = payload['converted_to_lead']
                         log.save()
-                
+            elif event_type == 'guidance_feedback':
+                log = GuidanceSessionLog.objects.filter(session_id=session_id).order_by('-created_at').first()
+                if log:
+                    log.rating = payload.get('rating')
+                    log.feedback_comment = payload.get('comment', '')
+                    log.save()
+                    
             elif event_type == 'page_view':
                 PageViewLog.objects.create(
                     session_id=session_id,
