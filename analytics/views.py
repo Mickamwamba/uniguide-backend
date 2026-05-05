@@ -39,6 +39,7 @@ class TelemetryTrackingView(views.APIView):
                         pathway=payload.get('pathway', ''),
                         academic_inputs=payload.get('academic_inputs', {}),
                         psychometric_inputs=payload.get('psychometric_inputs', {}),
+                        raw_interests=payload.get('raw_interests', ''),
                         ai_recommendations=payload.get('ai_recommendations', []),
                         ai_synthesis=payload.get('ai_synthesis', ''),
                         converted_to_lead=payload.get('converted_to_lead', False),
