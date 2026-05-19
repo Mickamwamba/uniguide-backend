@@ -2,12 +2,15 @@ from rest_framework import viewsets, filters, views, status, response
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from pgvector.django import CosineDistance
+from django.utils import timezone
 from google import genai
 import os
 import json
+import uuid
+from datetime import timedelta
 from openai import OpenAI
-from .models import University, Programme
-from .serializers import UniversitySerializer, ProgrammeSerializer, ProgrammeDetailSerializer
+from .models import University, Programme, CachedComparison
+from .serializers import UniversitySerializer, ProgrammeSerializer, ProgrammeDetailSerializer, ProgrammeCompareSummarySerializer
 
 class UniversityViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = University.objects.all().order_by('name')
@@ -97,6 +100,161 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
                     "error": "The AI is currently busy helping many other students. Please try again in a heartbeat!"
                 }, status=status.HTTP_429_TOO_MANY_REQUESTS)
             return response.Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'])
+    def compare(self, request):
+        from analytics.models import ComparisonLog
+
+        a_id_raw = request.data.get('programme_a_id')
+        b_id_raw = request.data.get('programme_b_id')
+        session_id = request.data.get('session_id')
+
+        if not a_id_raw or not b_id_raw:
+            return response.Response(
+                {'error': 'programme_a_id and programme_b_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if str(a_id_raw) == str(b_id_raw):
+            return response.Response(
+                {'error': 'programme_a_id and programme_b_id must be different'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            prog_a = Programme.objects.select_related('university').prefetch_related(
+                'courses', 'admission_requirements'
+            ).get(id=a_id_raw)
+        except Programme.DoesNotExist:
+            return response.Response({'error': f'Programme {a_id_raw} not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            prog_b = Programme.objects.select_related('university').prefetch_related(
+                'courses', 'admission_requirements'
+            ).get(id=b_id_raw)
+        except Programme.DoesNotExist:
+            return response.Response({'error': f'Programme {b_id_raw} not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Sort IDs lexicographically so (A,B) and (B,A) always hit the same cache row
+        a_id, b_id = sorted([str(prog_a.id), str(prog_b.id)])
+        prog_a_sorted = prog_a if str(prog_a.id) == a_id else prog_b
+        prog_b_sorted = prog_b if str(prog_b.id) == b_id else prog_a
+
+        # Cache check — return immediately if a non-expired result exists
+        cached = CachedComparison.objects.filter(
+            programme_a_id=a_id, programme_b_id=b_id,
+            expires_at__gt=timezone.now()
+        ).first()
+        if cached:
+            return response.Response(cached.result)
+
+        def get_data_quality(prog):
+            has_courses = prog.courses.exists()
+            has_description = bool(prog.description and len(prog.description.strip()) > 20)
+            if has_courses and has_description:
+                return 'full'
+            if has_courses or has_description:
+                return 'partial'
+            return 'insufficient'
+
+        quality_a = get_data_quality(prog_a_sorted)
+        quality_b = get_data_quality(prog_b_sorted)
+
+        data_a = ProgrammeDetailSerializer(prog_a_sorted).data
+        data_b = ProgrammeDetailSerializer(prog_b_sorted).data
+
+        SYSTEM_PROMPT = """You are a programme comparison assistant for Tanzanian university students.
+
+You are given the full details of two university programmes, including their courses and admission requirements.
+
+Return a JSON object with this exact structure:
+{
+  "dimensions": {
+    "contents":  { "similarities": ["string"], "differences": ["string"] },
+    "structure": { "similarities": ["string"], "differences": ["string"] },
+    "careers":   { "similarities": ["string"], "differences": ["string"] }
+  },
+  "synthesis": "2-4 sentences explaining the key difference in plain English suitable for a Form 6 student."
+}
+
+Rules:
+- Only use information present in the provided data. Do not infer or fabricate course content.
+- If a programme has no courses listed, note this honestly in the relevant dimension.
+- Write the synthesis at a reading level accessible to an 18-year-old Tanzanian student — no academic jargon.
+- Keep each similarity/difference point to one clear sentence."""
+
+        user_prompt = f"""Compare these two university programmes:
+
+PROGRAMME A: {data_a['name']} at {data_a.get('university_name', 'Unknown')}
+Award: {data_a.get('award_level')} | Duration: {data_a.get('duration_months')} months | Mode: {data_a.get('study_mode')}
+Description: {data_a.get('description') or 'No description available'}
+Career Outlooks: {data_a.get('career_outlooks', [])}
+Courses ({len(data_a.get('courses', []))}): {json.dumps(data_a.get('courses', []))}
+Admission Requirements: {json.dumps(data_a.get('admission_requirements', []))}
+Data Quality: {quality_a}
+
+PROGRAMME B: {data_b['name']} at {data_b.get('university_name', 'Unknown')}
+Award: {data_b.get('award_level')} | Duration: {data_b.get('duration_months')} months | Mode: {data_b.get('study_mode')}
+Description: {data_b.get('description') or 'No description available'}
+Career Outlooks: {data_b.get('career_outlooks', [])}
+Courses ({len(data_b.get('courses', []))}): {json.dumps(data_b.get('courses', []))}
+Admission Requirements: {json.dumps(data_b.get('admission_requirements', []))}
+Data Quality: {quality_b}"""
+
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            return response.Response({"error": "Server misconfigured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        openai_client = OpenAI(api_key=openai_api_key)
+
+        try:
+            completion = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ]
+            )
+            ai_result = json.loads(completion.choices[0].message.content)
+        except Exception as e:
+            if "429" in str(e):
+                return response.Response(
+                    {"error": "Our AI is busy right now — please try again in a moment"},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+            return response.Response(
+                {"error": "Something went wrong. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        result = {
+            "programme_a": ProgrammeCompareSummarySerializer(prog_a_sorted).data,
+            "programme_b": ProgrammeCompareSummarySerializer(prog_b_sorted).data,
+            "dimensions": ai_result.get("dimensions", {}),
+            "synthesis": ai_result.get("synthesis", ""),
+            "data_quality": {"a": quality_a, "b": quality_b}
+        }
+
+        CachedComparison.objects.update_or_create(
+            programme_a_id=a_id,
+            programme_b_id=b_id,
+            defaults={"result": result, "expires_at": timezone.now() + timedelta(hours=24)}
+        )
+
+        same_university = str(prog_a_sorted.university_id) == str(prog_b_sorted.university_id)
+        try:
+            ComparisonLog.objects.create(
+                session_id=session_id or uuid.uuid4(),
+                programme_a_id=a_id,
+                programme_b_id=b_id,
+                same_university=same_university,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                user_agent=(request.META.get('HTTP_USER_AGENT') or '')[:200]
+            )
+        except Exception:
+            pass
+
+        return response.Response(result)
 
 class RecommendationView(views.APIView):
     authentication_classes = []

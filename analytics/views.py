@@ -1,5 +1,5 @@
 from rest_framework import views, response, status
-from .models import SearchLog, GuidanceSessionLog, PageViewLog, EligibilityCheckLog, UserInquiry, ContentReport, StudentLead
+from .models import SearchLog, GuidanceSessionLog, PageViewLog, EligibilityCheckLog, UserInquiry, ContentReport, StudentLead, ComparisonLog
 
 class TelemetryTrackingView(views.APIView):
     """
@@ -148,6 +148,62 @@ class SubmitReportView(views.APIView):
         except Exception as e:
             print(f"Error saving content report: {e}")
             return response.Response({"error": "Submission failed. Our team has been notified!"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SubmitComparisonRatingView(views.APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        programme_a_id = request.data.get('programme_a_id')
+        programme_b_id = request.data.get('programme_b_id')
+        rating = request.data.get('rating')
+        session_id = request.data.get('session_id')
+
+        if not all([programme_a_id, programme_b_id, rating, session_id]):
+            return response.Response(
+                {"error": "programme_a_id, programme_b_id, rating, and session_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            rating = int(rating)
+        except (TypeError, ValueError):
+            return response.Response({"error": "rating must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not (1 <= rating <= 5):
+            return response.Response({"error": "rating must be between 1 and 5"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Sort IDs to match the key order used when the comparison was created
+        a_id, b_id = sorted([str(programme_a_id), str(programme_b_id)])
+
+        try:
+            log = ComparisonLog.objects.filter(
+                session_id=session_id,
+                programme_a_id=a_id,
+                programme_b_id=b_id
+            ).order_by('-created_at').first()
+
+            if log:
+                log.rating = rating
+                log.comment = request.data.get('comment', '')
+                log.save()
+            else:
+                ComparisonLog.objects.create(
+                    session_id=session_id,
+                    programme_a_id=a_id,
+                    programme_b_id=b_id,
+                    rating=rating,
+                    comment=request.data.get('comment', '')
+                )
+
+            return response.Response({"success": True}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print(f"Error saving comparison rating: {e}")
+            return response.Response(
+                {"error": "We couldn't save your rating right now. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class SubmitLeadView(views.APIView):
     """

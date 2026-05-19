@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.admin import SimpleListFilter
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
-from .models import SearchLog, GuidanceSessionLog, PageViewLog, EligibilityCheckLog, UserInquiry, ContentReport, StudentLead
+from .models import SearchLog, GuidanceSessionLog, PageViewLog, EligibilityCheckLog, UserInquiry, ContentReport, StudentLead, ComparisonLog
 
 class OptimizationFilter(SimpleListFilter):
     title = 'Optimization Status'
@@ -177,3 +177,34 @@ class EligibilityCheckLogAdmin(ModelAdmin):
     list_display = ('session_id', 'programme_id', 'ai_decision', 'created_at')
     list_filter = ('ai_decision', 'created_at')
     ordering = ('-created_at',)
+
+@admin.register(ComparisonLog)
+class ComparisonLogAdmin(ModelAdmin):
+    list_display = ('session_id', 'programme_a_id', 'programme_b_id', 'same_university', 'rating', 'created_at')
+    list_filter = ('same_university', 'rating', 'created_at')
+    search_fields = ('session_id',)
+    ordering = ('-created_at',)
+    readonly_fields = ('session_id', 'programme_a_id', 'programme_b_id', 'same_university', 'rating', 'comment', 'ip_address', 'user_agent', 'created_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from django.db.models import Avg
+        response = super().changelist_view(request, extra_context=extra_context)
+        try:
+            cl = response.context_data['cl']
+            qs = cl.queryset
+        except (AttributeError, KeyError):
+            return response
+        rated = qs.exclude(rating__isnull=True)
+        avg_rating = rated.aggregate(Avg('rating'))['rating__avg'] or 0
+        response.context_data['comparison_stats'] = {
+            'total_comparisons': qs.count(),
+            'avg_rating': round(avg_rating, 1),
+            'rated_count': rated.count(),
+        }
+        return response

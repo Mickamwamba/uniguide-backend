@@ -102,6 +102,21 @@ class ContentReport(models.Model):
     def __str__(self):
         return f"Report: {self.report_type} on {self.created_at.strftime('%Y-%m-%d')}"
 
+class ComparisonLog(SessionLog):
+    """Records every programme comparison, including optional student rating."""
+    programme_a_id = models.UUIDField()
+    programme_b_id = models.UUIDField()
+    same_university = models.BooleanField(default=False)
+    rating = models.IntegerField(null=True, blank=True, help_text="Student rating 1–5")
+    comment = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name_plural = 'Comparison Logs'
+
+    def __str__(self):
+        return f"Comparison {self.programme_a_id} vs {self.programme_b_id} (rating: {self.rating})"
+
+
 class StudentLead(models.Model):
     """
     Captured when a user 'saves' their guidance results.
