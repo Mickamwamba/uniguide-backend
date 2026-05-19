@@ -25,6 +25,8 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['name', 'university__name', 'university__short_name']
     filterset_fields = ['award_level', 'study_mode', 'university']
+    authentication_classes = []
+    permission_classes = []
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -162,29 +164,38 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
         data_a = ProgrammeDetailSerializer(prog_a_sorted).data
         data_b = ProgrammeDetailSerializer(prog_b_sorted).data
 
-        SYSTEM_PROMPT = """You are a programme comparison assistant for Tanzanian university students.
+        name_a = data_a['name']
+        name_b = data_b['name']
+
+        SYSTEM_PROMPT = f"""You are a programme comparison assistant helping Tanzanian A-Level and Diploma students decide between two university programmes.
 
 You are given the full details of two university programmes, including their courses and admission requirements.
 
 Return a JSON object with this exact structure:
-{
-  "dimensions": {
-    "contents":  { "similarities": ["string"], "differences": ["string"] },
-    "structure": { "similarities": ["string"], "differences": ["string"] },
-    "careers":   { "similarities": ["string"], "differences": ["string"] }
-  },
-  "synthesis": "2-4 sentences explaining the key difference in plain English suitable for a Form 6 student."
-}
+{{
+  "dimensions": {{
+    "contents":  {{ "similarities": ["string"], "differences": ["string"] }},
+    "structure": {{ "similarities": ["string"], "differences": ["string"] }},
+    "careers":   {{ "similarities": ["string"], "differences": ["string"] }}
+  }},
+  "synthesis": "A plain-language paragraph of 4-6 sentences. Start by naming both programmes by their actual names. Explain what each is fundamentally about in one sentence each. Then state the single most important thing that sets them apart for a student choosing between them. End with a practical pointer on which type of student would be better suited to each. Write as if speaking directly to an 18-year-old Tanzanian student — no jargon, short sentences, friendly tone.",
+  "recommendation": {{
+    "for_a": "Consider {name_a} if you are interested in ... (complete the sentence with 1-2 specific, concrete reasons drawn from that programme's actual strengths and career paths)",
+    "for_b": "Consider {name_b} if you are interested in ... (complete the sentence with 1-2 specific, concrete reasons drawn from that programme's actual strengths and career paths)"
+  }}
+}}
 
 Rules:
 - Only use information present in the provided data. Do not infer or fabricate course content.
-- If a programme has no courses listed, note this honestly in the relevant dimension.
-- Write the synthesis at a reading level accessible to an 18-year-old Tanzanian student — no academic jargon.
-- Keep each similarity/difference point to one clear sentence."""
+- If a programme has no courses listed, say so honestly in the contents dimension — do not invent subjects.
+- In dimension bullet points, use **bold** to highlight the most important keyword or phrase in each bullet, and *italics* for specific names (course names, career titles, institutions). This helps students scan quickly.
+- Keep each similarity/difference bullet to one clear sentence (max 25 words including markdown).
+- Aim for 3-5 bullets per list. Quality over quantity.
+- The recommendation sentences must start exactly with "Consider {name_a} if you are interested in" and "Consider {name_b} if you are interested in"."""
 
         user_prompt = f"""Compare these two university programmes:
 
-PROGRAMME A: {data_a['name']} at {data_a.get('university_name', 'Unknown')}
+{name_a} at {data_a.get('university_name', 'Unknown')}
 Award: {data_a.get('award_level')} | Duration: {data_a.get('duration_months')} months | Mode: {data_a.get('study_mode')}
 Description: {data_a.get('description') or 'No description available'}
 Career Outlooks: {data_a.get('career_outlooks', [])}
@@ -192,7 +203,7 @@ Courses ({len(data_a.get('courses', []))}): {json.dumps(data_a.get('courses', []
 Admission Requirements: {json.dumps(data_a.get('admission_requirements', []))}
 Data Quality: {quality_a}
 
-PROGRAMME B: {data_b['name']} at {data_b.get('university_name', 'Unknown')}
+{name_b} at {data_b.get('university_name', 'Unknown')}
 Award: {data_b.get('award_level')} | Duration: {data_b.get('duration_months')} months | Mode: {data_b.get('study_mode')}
 Description: {data_b.get('description') or 'No description available'}
 Career Outlooks: {data_b.get('career_outlooks', [])}
@@ -217,13 +228,26 @@ Data Quality: {quality_b}"""
             )
             ai_result = json.loads(completion.choices[0].message.content)
         except Exception as e:
-            if "429" in str(e):
+            import logging
+            logging.getLogger(__name__).error("OpenAI compare error: %s", repr(e))
+            from openai import RateLimitError, AuthenticationError, APIConnectionError
+            if isinstance(e, RateLimitError):
                 return response.Response(
                     {"error": "Our AI is busy right now — please try again in a moment"},
                     status=status.HTTP_429_TOO_MANY_REQUESTS
                 )
+            if isinstance(e, AuthenticationError):
+                return response.Response(
+                    {"error": "Server misconfigured — invalid API key"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            if isinstance(e, APIConnectionError):
+                return response.Response(
+                    {"error": "Could not reach the AI service — please try again"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
             return response.Response(
-                {"error": "Something went wrong. Please try again."},
+                {"error": f"Something went wrong: {repr(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -232,6 +256,7 @@ Data Quality: {quality_b}"""
             "programme_b": ProgrammeCompareSummarySerializer(prog_b_sorted).data,
             "dimensions": ai_result.get("dimensions", {}),
             "synthesis": ai_result.get("synthesis", ""),
+            "recommendation": ai_result.get("recommendation", {}),
             "data_quality": {"a": quality_a, "b": quality_b}
         }
 
@@ -247,7 +272,12 @@ Data Quality: {quality_b}"""
                 session_id=session_id or uuid.uuid4(),
                 programme_a_id=a_id,
                 programme_b_id=b_id,
+                programme_a_name=prog_a_sorted.name,
+                programme_b_name=prog_b_sorted.name,
+                university_a_name=prog_a_sorted.university.name,
+                university_b_name=prog_b_sorted.university.name,
                 same_university=same_university,
+                ai_result=result,
                 ip_address=request.META.get('REMOTE_ADDR'),
                 user_agent=(request.META.get('HTTP_USER_AGENT') or '')[:200]
             )

@@ -180,11 +180,50 @@ class EligibilityCheckLogAdmin(ModelAdmin):
 
 @admin.register(ComparisonLog)
 class ComparisonLogAdmin(ModelAdmin):
-    list_display = ('session_id', 'programme_a_id', 'programme_b_id', 'same_university', 'rating', 'created_at')
+    list_display = ('programmes_compared', 'universities_compared', 'same_university', 'rating_stars', 'created_at')
     list_filter = ('same_university', 'rating', 'created_at')
-    search_fields = ('session_id',)
+    search_fields = ('programme_a_name', 'programme_b_name', 'university_a_name', 'university_b_name', 'session_id')
     ordering = ('-created_at',)
-    readonly_fields = ('session_id', 'programme_a_id', 'programme_b_id', 'same_university', 'rating', 'comment', 'ip_address', 'user_agent', 'created_at')
+    readonly_fields = (
+        'session_id', 'created_at', 'ip_address', 'user_agent',
+        'programme_a_name', 'programme_b_name', 'university_a_name', 'university_b_name',
+        'programme_a_id', 'programme_b_id', 'same_university',
+        'rating', 'comment',
+        'synthesis_display', 'recommendation_display',
+        'contents_display', 'structure_display', 'careers_display',
+    )
+
+    fieldsets = (
+        ('Programmes Compared', {
+            'fields': (
+                ('programme_a_name', 'university_a_name'),
+                ('programme_b_name', 'university_b_name'),
+                'same_university',
+            )
+        }),
+        ('AI Synthesis', {
+            'fields': ('synthesis_display',),
+        }),
+        ('AI Recommendation', {
+            'fields': ('recommendation_display',),
+        }),
+        ('Course Contents', {
+            'fields': ('contents_display',),
+        }),
+        ('Programme Structure', {
+            'fields': ('structure_display',),
+        }),
+        ('Career Pathways', {
+            'fields': ('careers_display',),
+        }),
+        ('Student Feedback', {
+            'fields': ('rating', 'comment'),
+        }),
+        ('Session Info', {
+            'fields': ('session_id', 'ip_address', 'user_agent', 'created_at'),
+            'classes': ('collapse',),
+        }),
+    )
 
     def has_add_permission(self, request):
         return False
@@ -192,8 +231,100 @@ class ComparisonLogAdmin(ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
+    # --- List display columns ---
+
+    @admin.display(description='Programmes')
+    def programmes_compared(self, obj):
+        a = obj.programme_a_name or str(obj.programme_a_id)
+        b = obj.programme_b_name or str(obj.programme_b_id)
+        return format_html('<span style="font-weight:600">{}</span> <span style="color:#94a3b8">vs</span> <span style="font-weight:600">{}</span>', a, b)
+
+    @admin.display(description='Universities')
+    def universities_compared(self, obj):
+        if obj.university_a_name and obj.university_b_name:
+            if obj.same_university:
+                return obj.university_a_name
+            return format_html('{} / {}', obj.university_a_name, obj.university_b_name)
+        return '—'
+
+    @admin.display(description='Rating')
+    def rating_stars(self, obj):
+        from django.utils.safestring import mark_safe
+        if obj.rating is None:
+            return mark_safe('<span style="color:#cbd5e1">Not rated</span>')
+        stars = '★' * obj.rating + '☆' * (5 - obj.rating)
+        return mark_safe(f'<span style="color:#f59e0b;letter-spacing:2px">{stars}</span>')
+
+    # --- Detail view computed fields ---
+
+    def _dimension_html(self, obj, key):
+        from django.utils.safestring import mark_safe
+        if not obj.ai_result:
+            return mark_safe('<em style="color:#94a3b8">No data captured</em>')
+        dim = (obj.ai_result.get('dimensions') or {}).get(key, {})
+        similarities = dim.get('similarities') or []
+        differences = dim.get('differences') or []
+
+        def bullet_list(items, color):
+            if not items:
+                return '<p style="color:#94a3b8;font-style:italic;margin:0">None identified</p>'
+            lis = ''.join(f'<li style="margin-bottom:4px">{item}</li>' for item in items)
+            return f'<ul style="margin:0;padding-left:18px;color:{color}">{lis}</ul>'
+
+        html = (
+            f'<div style="margin-bottom:12px">'
+            f'<strong style="color:#059669;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Similarities</strong>'
+            f'<div style="margin-top:6px">{bullet_list(similarities, "#374151")}</div>'
+            f'</div>'
+            f'<div>'
+            f'<strong style="color:#d97706;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Differences</strong>'
+            f'<div style="margin-top:6px">{bullet_list(differences, "#374151")}</div>'
+            f'</div>'
+        )
+        return mark_safe(html)
+
+    @admin.display(description='Synthesis (AI Summary)')
+    def synthesis_display(self, obj):
+        from django.utils.safestring import mark_safe
+        if not obj.ai_result:
+            return mark_safe('<em style="color:#94a3b8">No data captured</em>')
+        text = obj.ai_result.get('synthesis') or ''
+        if not text:
+            return mark_safe('<em style="color:#94a3b8">Not available</em>')
+        return mark_safe(f'<p style="line-height:1.7;color:#374151;max-width:700px">{text}</p>')
+
+    @admin.display(description='Recommendation (AI)')
+    def recommendation_display(self, obj):
+        from django.utils.safestring import mark_safe
+        if not obj.ai_result:
+            return mark_safe('<em style="color:#94a3b8">No data captured</em>')
+        rec = obj.ai_result.get('recommendation') or {}
+        for_a = rec.get('for_a') or ''
+        for_b = rec.get('for_b') or ''
+        if not for_a and not for_b:
+            return mark_safe('<em style="color:#94a3b8">Not available</em>')
+        rows = ''
+        if for_a:
+            rows += f'<p style="margin:0 0 8px;color:#374151">→ {for_a}</p>'
+        if for_b:
+            rows += f'<p style="margin:0;color:#374151">→ {for_b}</p>'
+        return mark_safe(f'<div style="max-width:700px">{rows}</div>')
+
+    @admin.display(description='Contents — Similarities & Differences')
+    def contents_display(self, obj):
+        return self._dimension_html(obj, 'contents')
+
+    @admin.display(description='Structure — Similarities & Differences')
+    def structure_display(self, obj):
+        return self._dimension_html(obj, 'structure')
+
+    @admin.display(description='Careers — Similarities & Differences')
+    def careers_display(self, obj):
+        return self._dimension_html(obj, 'careers')
+
     def changelist_view(self, request, extra_context=None):
-        from django.db.models import Avg
+        from django.db.models import Avg, Count
+        from django.utils import timezone
         response = super().changelist_view(request, extra_context=extra_context)
         try:
             cl = response.context_data['cl']
@@ -202,9 +333,19 @@ class ComparisonLogAdmin(ModelAdmin):
             return response
         rated = qs.exclude(rating__isnull=True)
         avg_rating = rated.aggregate(Avg('rating'))['rating__avg'] or 0
+        today = timezone.now().date()
+        rating_dist = rated.values('rating').annotate(count=Count('id')).order_by('rating')
+        rating_counts = [0] * 5
+        for r in rating_dist:
+            if 1 <= r['rating'] <= 5:
+                rating_counts[r['rating'] - 1] = r['count']
         response.context_data['comparison_stats'] = {
             'total_comparisons': qs.count(),
+            'total_today': qs.filter(created_at__date=today).count(),
             'avg_rating': round(avg_rating, 1),
             'rated_count': rated.count(),
+            'cross_university': qs.filter(same_university=False).count(),
+            'same_university': qs.filter(same_university=True).count(),
+            'rating_counts': rating_counts,
         }
         return response

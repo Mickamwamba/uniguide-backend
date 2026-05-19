@@ -230,6 +230,11 @@ UNFOLD = {
                         "icon": "visibility",
                         "link": "/admin/analytics/pageviewlog/",
                     },
+                    {
+                        "title": "Comparison Analytics",
+                        "icon": "compare",
+                        "link": "/admin/analytics/comparisonlog/",
+                    },
                 ],
             },
             {
