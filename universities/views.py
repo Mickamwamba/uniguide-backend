@@ -185,9 +185,13 @@ Return a JSON object with this exact structure:
       "programme_b": ["what is distinctive about {name_b}'s programme structure, duration, delivery, or assessment"]
     }},
     "careers": {{
-      "similarities": ["career paths or industries that both programmes can lead to"],
-      "programme_a": ["career paths, job roles, or advantages that are specific to {name_a} graduates"],
-      "programme_b": ["career paths, job roles, or advantages that are specific to {name_b} graduates"]
+      "similarities": ["career paths or industries that both programmes lead to"],
+      "programme_a": ["what is distinctive about {name_a}'s career prospects — specific advantages or graduate outcomes"],
+      "programme_b": ["what is distinctive about {name_b}'s career prospects — specific advantages or graduate outcomes"],
+      "employers_a": ["4-5 real Tanzanian organisations (companies, government bodies, NGOs, institutions) known to hire {name_a} graduates"],
+      "employers_b": ["4-5 real Tanzanian organisations (companies, government bodies, NGOs, institutions) known to hire {name_b} graduates"],
+      "pathways_a": ["4-5 specific job titles that a {name_a} graduate typically enters in Tanzania"],
+      "pathways_b": ["4-5 specific job titles that a {name_b} graduate typically enters in Tanzania"]
     }}
   }},
   "synthesis": "4-6 sentences. Name both programmes. Explain what each is fundamentally about in one sentence each. State the single most important thing that sets them apart. Write for an 18-year-old Tanzanian student — no jargon, short sentences, friendly tone.",
@@ -211,7 +215,9 @@ Rules:
 - Use **bold** to highlight the most important keyword in each bullet. Use *italics* for specific course or career names.
 - Keep each bullet to one clear sentence (max 20 words including markdown). Write 3 bullets per programme.
 - Recommendation bullets must be concrete and specific to each programme's actual data — not generic advice.
-- Start each recommendation bullet with "You " — first person, addressing the student directly."""
+- Start each recommendation bullet with "You " — first person, addressing the student directly.
+- For employers_a and employers_b: name real, well-known Tanzanian organisations (e.g. NMB Bank, Vodacom Tanzania, TANESCO, TRA, NIMR). Do not include salary figures.
+- For pathways_a and pathways_b: list specific job titles only (e.g. "Software Developer", "Data Analyst"). No salary, no demand ratings."""
 
         user_prompt = f"""Compare these two university programmes:
 

@@ -51,10 +51,17 @@ class ProgrammeDetailSerializer(ProgrammeSerializer):
     class Meta(ProgrammeSerializer.Meta):
         fields = ProgrammeSerializer.Meta.fields + ['courses', 'admission_requirements']
 
+class AdmissionRequirementBriefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdmissionRequirement
+        fields = ['pathway', 'description']
+
 class ProgrammeCompareSummarySerializer(serializers.ModelSerializer):
     university = serializers.CharField(source='university.name', read_only=True)
     university_short = serializers.CharField(source='university.short_name', read_only=True)
+    university_id = serializers.UUIDField(source='university.id', read_only=True)
+    admission_requirements = AdmissionRequirementBriefSerializer(many=True, read_only=True)
 
     class Meta:
         model = Programme
-        fields = ['id', 'name', 'university', 'university_short', 'award_level', 'duration_months', 'study_mode']
+        fields = ['id', 'name', 'university', 'university_id', 'university_short', 'award_level', 'duration_months', 'study_mode', 'admission_requirements']
