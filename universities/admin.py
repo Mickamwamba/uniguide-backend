@@ -1,6 +1,6 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from .models import University, Programme, AdmissionRequirement
+from .models import University, Programme, AdmissionRequirement, CachedComparison
 
 @admin.register(University)
 class UniversityAdmin(ModelAdmin):
@@ -86,3 +86,16 @@ class ProgrammeAdmin(ModelAdmin):
 class AdmissionRequirementAdmin(ModelAdmin):
     list_display = ('programme', 'pathway')
     list_filter = ('pathway',)
+
+@admin.register(CachedComparison)
+class CachedComparisonAdmin(ModelAdmin):
+    list_display = ('programme_a_id', 'programme_b_id', 'expires_at', 'created_at')
+    list_filter = ('created_at',)
+    ordering = ('-created_at',)
+    readonly_fields = ('id', 'programme_a_id', 'programme_b_id', 'result', 'expires_at', 'created_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

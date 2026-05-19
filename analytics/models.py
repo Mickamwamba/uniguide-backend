@@ -102,6 +102,29 @@ class ContentReport(models.Model):
     def __str__(self):
         return f"Report: {self.report_type} on {self.created_at.strftime('%Y-%m-%d')}"
 
+class ComparisonLog(SessionLog):
+    """Records every programme comparison, including the full AI result and optional student rating."""
+    programme_a_id = models.UUIDField()
+    programme_b_id = models.UUIDField()
+    programme_a_name = models.CharField(max_length=255, blank=True)
+    programme_b_name = models.CharField(max_length=255, blank=True)
+    university_a_name = models.CharField(max_length=255, blank=True)
+    university_b_name = models.CharField(max_length=255, blank=True)
+    same_university = models.BooleanField(default=False)
+    ai_result = models.JSONField(null=True, blank=True, help_text="Full AI response: dimensions, synthesis, recommendation")
+    rating = models.IntegerField(null=True, blank=True, help_text="Student rating 1–5")
+    comment = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name_plural = 'Comparison Logs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        a = self.programme_a_name or str(self.programme_a_id)
+        b = self.programme_b_name or str(self.programme_b_id)
+        return f"{a} vs {b}"
+
+
 class StudentLead(models.Model):
     """
     Captured when a user 'saves' their guidance results.

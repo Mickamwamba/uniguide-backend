@@ -149,6 +149,23 @@ class AdmissionRequirement(models.Model):
     def __str__(self):
         return f"Requirements ({self.pathway}) for {self.programme.name}"
 
+class CachedComparison(models.Model):
+    # programme_a_id is always the lesser UUID (sorted lexicographically) to ensure (A,B) == (B,A)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    programme_a_id = models.UUIDField(db_index=True)
+    programme_b_id = models.UUIDField(db_index=True)
+    result = models.JSONField()
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('programme_a_id', 'programme_b_id')]
+
+    def __str__(self):
+        return f"CachedComparison {self.programme_a_id} vs {self.programme_b_id}"
+
+
 class StudentLead(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
