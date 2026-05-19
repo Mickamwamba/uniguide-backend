@@ -192,8 +192,16 @@ Return a JSON object with this exact structure:
   }},
   "synthesis": "4-6 sentences. Name both programmes. Explain what each is fundamentally about in one sentence each. State the single most important thing that sets them apart. Write for an 18-year-old Tanzanian student — no jargon, short sentences, friendly tone.",
   "recommendation": {{
-    "for_a": "Consider {name_a} if you are interested in ... (1-2 specific concrete reasons from that programme's actual strengths)",
-    "for_b": "Consider {name_b} if you are interested in ... (1-2 specific concrete reasons from that programme's actual strengths)"
+    "for_a": [
+      "You enjoy **[topic]** and want to work in *[field]*",
+      "You prefer a programme with **[distinctive structural feature]**",
+      "You want to graduate ready for *[specific career role]*"
+    ],
+    "for_b": [
+      "You enjoy **[topic]** and want to work in *[field]*",
+      "You prefer a programme with **[distinctive structural feature]**",
+      "You want to graduate ready for *[specific career role]*"
+    ]
   }}
 }}
 
@@ -201,8 +209,9 @@ Rules:
 - Only use information present in the provided data. Do not fabricate course content.
 - If a programme has no courses listed, say so honestly — do not invent subjects.
 - Use **bold** to highlight the most important keyword in each bullet. Use *italics* for specific course or career names.
-- Keep each bullet to one clear sentence (max 25 words including markdown). Aim for 3-5 bullets per list.
-- The recommendation sentences must start exactly with "Consider {name_a} if you are interested in" and "Consider {name_b} if you are interested in"."""
+- Keep each bullet to one clear sentence (max 20 words including markdown). Write 3 bullets per programme.
+- Recommendation bullets must be concrete and specific to each programme's actual data — not generic advice.
+- Start each recommendation bullet with "You " — first person, addressing the student directly."""
 
         user_prompt = f"""Compare these two university programmes:
 

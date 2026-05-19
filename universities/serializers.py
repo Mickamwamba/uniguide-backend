@@ -53,7 +53,8 @@ class ProgrammeDetailSerializer(ProgrammeSerializer):
 
 class ProgrammeCompareSummarySerializer(serializers.ModelSerializer):
     university = serializers.CharField(source='university.name', read_only=True)
+    university_short = serializers.CharField(source='university.short_name', read_only=True)
 
     class Meta:
         model = Programme
-        fields = ['id', 'name', 'university', 'award_level']
+        fields = ['id', 'name', 'university', 'university_short', 'award_level', 'duration_months', 'study_mode']
