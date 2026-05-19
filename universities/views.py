@@ -169,28 +169,39 @@ class ProgrammeViewSet(viewsets.ReadOnlyModelViewSet):
 
         SYSTEM_PROMPT = f"""You are a programme comparison assistant helping Tanzanian A-Level and Diploma students decide between two university programmes.
 
-You are given the full details of two university programmes, including their courses and admission requirements.
+You are given the full details of two university programmes. The first is "{name_a}" and the second is "{name_b}".
 
 Return a JSON object with this exact structure:
 {{
   "dimensions": {{
-    "contents":  {{ "similarities": ["string"], "differences": ["string"] }},
-    "structure": {{ "similarities": ["string"], "differences": ["string"] }},
-    "careers":   {{ "similarities": ["string"], "differences": ["string"] }}
+    "contents": {{
+      "similarities": ["what both programmes share in terms of course content"],
+      "programme_a": ["what is distinctive about {name_a}'s course content — unique subjects, focus areas, or approaches"],
+      "programme_b": ["what is distinctive about {name_b}'s course content — unique subjects, focus areas, or approaches"]
+    }},
+    "structure": {{
+      "similarities": ["structural similarities between the two programmes"],
+      "programme_a": ["what is distinctive about {name_a}'s programme structure, duration, delivery, or assessment"],
+      "programme_b": ["what is distinctive about {name_b}'s programme structure, duration, delivery, or assessment"]
+    }},
+    "careers": {{
+      "similarities": ["career paths or industries that both programmes can lead to"],
+      "programme_a": ["career paths, job roles, or advantages that are specific to {name_a} graduates"],
+      "programme_b": ["career paths, job roles, or advantages that are specific to {name_b} graduates"]
+    }}
   }},
-  "synthesis": "A plain-language paragraph of 4-6 sentences. Start by naming both programmes by their actual names. Explain what each is fundamentally about in one sentence each. Then state the single most important thing that sets them apart for a student choosing between them. End with a practical pointer on which type of student would be better suited to each. Write as if speaking directly to an 18-year-old Tanzanian student — no jargon, short sentences, friendly tone.",
+  "synthesis": "4-6 sentences. Name both programmes. Explain what each is fundamentally about in one sentence each. State the single most important thing that sets them apart. Write for an 18-year-old Tanzanian student — no jargon, short sentences, friendly tone.",
   "recommendation": {{
-    "for_a": "Consider {name_a} if you are interested in ... (complete the sentence with 1-2 specific, concrete reasons drawn from that programme's actual strengths and career paths)",
-    "for_b": "Consider {name_b} if you are interested in ... (complete the sentence with 1-2 specific, concrete reasons drawn from that programme's actual strengths and career paths)"
+    "for_a": "Consider {name_a} if you are interested in ... (1-2 specific concrete reasons from that programme's actual strengths)",
+    "for_b": "Consider {name_b} if you are interested in ... (1-2 specific concrete reasons from that programme's actual strengths)"
   }}
 }}
 
 Rules:
-- Only use information present in the provided data. Do not infer or fabricate course content.
-- If a programme has no courses listed, say so honestly in the contents dimension — do not invent subjects.
-- In dimension bullet points, use **bold** to highlight the most important keyword or phrase in each bullet, and *italics* for specific names (course names, career titles, institutions). This helps students scan quickly.
-- Keep each similarity/difference bullet to one clear sentence (max 25 words including markdown).
-- Aim for 3-5 bullets per list. Quality over quantity.
+- Only use information present in the provided data. Do not fabricate course content.
+- If a programme has no courses listed, say so honestly — do not invent subjects.
+- Use **bold** to highlight the most important keyword in each bullet. Use *italics* for specific course or career names.
+- Keep each bullet to one clear sentence (max 25 words including markdown). Aim for 3-5 bullets per list.
 - The recommendation sentences must start exactly with "Consider {name_a} if you are interested in" and "Consider {name_b} if you are interested in"."""
 
         user_prompt = f"""Compare these two university programmes:
