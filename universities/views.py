@@ -216,8 +216,9 @@ Rules:
 - Keep each bullet to one clear sentence (max 20 words including markdown). Write 3 bullets per programme.
 - Recommendation bullets must be concrete and specific to each programme's actual data — not generic advice.
 - Start each recommendation bullet with "You " — first person, addressing the student directly.
-- For employers_a and employers_b: name real, well-known Tanzanian organisations (e.g. NMB Bank, Vodacom Tanzania, TANESCO, TRA, NIMR). Do not include salary figures.
-- For pathways_a and pathways_b: list specific job titles only (e.g. "Software Developer", "Data Analyst"). No salary, no demand ratings."""
+- For employers_a and employers_b: name 4–5 real Tanzanian organisations that would genuinely recruit graduates from that specific programme. Base your choices on the field of study and course content. If the two programmes are closely related and lead to similar outcomes, it is correct and expected to list the same or overlapping employers — do not force artificial differences. Only diverge where the programmes genuinely serve different sectors or roles.
+- For pathways_a and pathways_b: apply the same logic — if the programmes are closely related, shared job titles are accurate and preferred over invented distinctions. Only list different roles where the programmes genuinely diverge in outcome.
+- No salary figures, no demand ratings."""
 
         user_prompt = f"""Compare these two university programmes:
 
